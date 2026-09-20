@@ -5,6 +5,7 @@ const db = require("./db");
 const { requireUser, membershipActive } = require("./auth");
 const { getPersona, languageNote } = require("./persona");
 const deepseek = require("./deepseek");
+const { avatarUrl } = require("./images");
 
 const router = express.Router();
 
@@ -12,11 +13,11 @@ const sending = new Set(); // conversation ids with a model call in flight (one 
 
 const dayKey = () => new Date().toISOString().slice(0, 10);
 
-function toConversation(c) {
+function toConversation(c, req) {
   return {
     id: String(c._id),
     person_id: c.person_id,
-    actor: { names: c.actor_names || {}, avatar: c.actor_avatar || "" },
+    actor: { names: c.actor_names || {}, avatar: avatarUrl(c.actor_avatar, req.headers.host) },
     last_message: c.last_message || "",
     last_message_at: c.last_message_at || c.created_at,
     message_count: c.message_count || 0,
@@ -69,7 +70,7 @@ router.get("/conversations", async (req, res, next) => {
       .sort({ last_message_at: -1 })
       .limit(100)
       .toArray();
-    res.json({ conversations: list.map(toConversation) });
+    res.json({ conversations: list.map((c) => toConversation(c, req)) });
   } catch (error) {
     next(error);
   }
@@ -94,7 +95,7 @@ router.post("/conversations", async (req, res, next) => {
       { upsert: true }
     );
     const conv = await db.conversations().findOne({ user: req.user.email, person_id: personId });
-    res.json({ conversation: toConversation(conv) });
+    res.json({ conversation: toConversation(conv, req) });
   } catch (error) {
     next(error);
   }

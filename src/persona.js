@@ -77,11 +77,6 @@ function buildSystemPrompt({ names, spec, koDescription }) {
   ].join("\n");
 }
 
-function withCdn(url) {
-  if (!url || !config.imageCdnBase) return url || "";
-  return url.replace("https://s3.ap-northeast-1.wasabisys.com/swipesub", config.imageCdnBase);
-}
-
 /**
  * @returns {Promise<{personId, displayNames, avatar, systemPrompt}|null>}
  *   null when the actress doesn't exist, is inactive, or her Korean description is shorter
@@ -110,7 +105,7 @@ async function getPersona(personId) {
   const persona = {
     personId: doc.person_id,
     displayNames: names,
-    avatar: withCdn(doc.avatar),
+    avatar: doc.avatar || "", // raw; rewritten per request (src/images.js)
     systemPrompt: buildSystemPrompt({ names, spec: doc.spec, koDescription }),
   };
   cache.set(personId, { persona, exp: Date.now() + PERSONA_TTL_MS });

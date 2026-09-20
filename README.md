@@ -3,7 +3,8 @@
 AI actor-avatar chat server for Flix1. Node.js / Express + MongoDB, model = DeepSeek (`deepseek-flash`).
 
 - Persona = the **Korean** `description` of the actress in `actress_new` (other languages there are machine translations and are never sent to the model) plus name / birth / height / debut. The persona message is identical for every user of the same actress, so the provider's prefix cache applies. The chat language is a separate short message.
-- Identity = the user's account token, verified against `https://<host>/api/user/profile` (same call the support ChatServer uses). `<host>` comes from the `x-auth-host` header and must be in `AUTH_PROFILE_HOSTS`.
+- Identity = the user's account token, verified server-side against `https://apiplayer.app/api/user/profile`, falling back to `api.flix1.net` (same accounts as the China-side base1/base2 domains). The host is never taken from the client.
+- Avatar URLs are rewritten per request to `https://image.<Host the app called>` (the real API domain from `/lookup`), so nothing image-related is configured on this server.
 - Chat is a paid feature: the account's `sub_expires_at` (epoch ms) from the same `/profile` call must be in the future, otherwise creating a conversation or sending is refused with `403 MEMBERSHIP_REQUIRED` (no admin exception). Identity is cached 10 minutes, but "no membership" is never served from cache: it is re-checked live on every attempt, so a user who just subscribed gets in immediately. Reading or deleting old conversations stays open.
 - Only actresses whose Korean description has at least `MIN_DESCRIPTION_CHARS` (300) characters can be chatted with.
 - Text only for now (no image / document upload).

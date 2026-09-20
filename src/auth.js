@@ -1,8 +1,14 @@
 /**
  * Identifies the caller by asking the account server (same call the app makes and the
  * support ChatServer re-verifies: GET https://<host>/api/user/profile with the user's
- * Bearer token). Nothing the client claims about itself is trusted; the host it names must
- * be on the allowlist so it can't point us at a server that answers "yes" to anything.
+ * Bearer token). The host is chosen here, never by the client: with a paywall in front of
+ * chat, a client-supplied host could point us at a server that answers "subscribed" to
+ * anything.
+ *
+ * The account API is one backend behind several front domains (apiplayer.app, api.flix1.net
+ * and the China-side base1/base2 from backup-domain.json all serve the same accounts), so a
+ * token from any of them verifies against the first two. This server sits outside the GFW,
+ * so it does not need the China-side domains.
  *
  * Membership (chat is a paid feature) = profile.sub_expires_at is in the future. Identity is
  * cached for 10 minutes, but a "no membership" answer is never trusted from the cache: a
@@ -11,14 +17,16 @@
  */
 const crypto = require("crypto");
 const axios = require("axios");
-const config = require("./config");
+
+// Same values as the app's defaultAuthUrl / backupAuthUrl. Tried in order.
+const ACCOUNT_HOSTS = ["apiplayer.app", "api.flix1.net"];
 
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const CACHE_MAX = 5000;
-const cache = new Map(); // sha256(host|token) -> { email, name, subExpiresAt, exp }
+const cache = new Map(); // sha256(token) -> { email, name, subExpiresAt, exp }
 
-function cacheKey(host, token) {
-  return crypto.createHash("sha256").update(`${host}|${token}`).digest("hex");
+function cacheKey(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
 }
 
 function remember(key, value) {
@@ -39,6 +47,8 @@ async function defaultFetchProfile(host, token) {
     timeout: 10000,
     validateStatus: () => true,
   });
+  // server trouble is an error (try the next host); anything else non-200 means "bad token"
+  if (resp.status >= 500 || resp.status === 429) throw new Error(`profile HTTP ${resp.status}`);
   return resp.status === 200 && resp.data ? resp.data.data : null;
 }
 
@@ -48,12 +58,24 @@ const _setFetchProfile = (fn) => {
   cache.clear();
 };
 
-async function verify(host, token, { fresh = false } = {}) {
-  const key = cacheKey(host, token);
+async function verify(token, { fresh = false } = {}) {
+  const key = cacheKey(token);
   const hit = cache.get(key);
   if (!fresh && hit && hit.exp > Date.now()) return hit;
 
-  const data = await fetchProfile(host, token);
+  let data;
+  let lastError = null;
+  let answered = false;
+  for (const host of ACCOUNT_HOSTS) {
+    try {
+      data = await fetchProfile(host, token);
+      answered = true;
+      break;
+    } catch (error) {
+      lastError = error; // unreachable / 5xx: fall back to the next host
+    }
+  }
+  if (!answered) throw lastError;
   if (!data || typeof data.email !== "string" || !data.email) return null;
 
   const user = {
@@ -71,15 +93,12 @@ async function requireUser(req, res, next) {
     const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || "");
     if (!m || m[1] === "null") return res.status(401).json({ error: "LOGIN_REQUIRED" });
 
-    const host = String(req.headers["x-auth-host"] || "apiplayer.app").trim().toLowerCase();
-    if (!config.authHosts.includes(host)) return res.status(400).json({ error: "BAD_AUTH_HOST" });
-
     const token = m[1].trim();
-    const user = await verify(host, token);
+    const user = await verify(token);
     if (!user) return res.status(401).json({ error: "LOGIN_REQUIRED" });
 
     req.user = user;
-    req.auth = { host, token };
+    req.auth = { token };
     next();
   } catch (error) {
     console.log("[auth] verify failed:", error.message);
@@ -96,7 +115,7 @@ async function membershipActive(req) {
   if (req.user.subExpiresAt > Date.now()) return true;
   let fresh;
   try {
-    fresh = await verify(req.auth.host, req.auth.token, { fresh: true });
+    fresh = await verify(req.auth.token, { fresh: true });
   } catch (cause) {
     const error = new Error(`account server unreachable: ${cause.message}`);
     error.code = "AUTH_UNAVAILABLE";
