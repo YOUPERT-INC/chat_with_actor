@@ -1,0 +1,30 @@
+const mongoose = require("mongoose");
+const config = require("./config");
+
+// Collections written by this service. actress_new is only ever read.
+const CONVERSATIONS = "actor_chat_conversations";
+const MESSAGES = "actor_chat_messages";
+const USAGE = "actor_chat_usage";
+
+async function connect() {
+  if (!config.mongoUri) throw new Error("MONGODB_URI is not set");
+  await mongoose.connect(config.mongoUri, { dbName: config.mongoDb });
+  const db = mongoose.connection.db;
+  await db.collection(CONVERSATIONS).createIndex({ user: 1, person_id: 1 }, { unique: true });
+  await db.collection(CONVERSATIONS).createIndex({ user: 1, last_message_at: -1 });
+  await db.collection(MESSAGES).createIndex({ conversation_id: 1, _id: -1 });
+  await db.collection(USAGE).createIndex({ user: 1, day: 1 }, { unique: true });
+  // usage rows are only needed for the current day
+  await db.collection(USAGE).createIndex({ created_at: 1 }, { expireAfterSeconds: 3 * 24 * 3600 });
+  return db;
+}
+
+const col = (name) => mongoose.connection.db.collection(name);
+
+module.exports = {
+  connect,
+  conversations: () => col(CONVERSATIONS),
+  messages: () => col(MESSAGES),
+  usage: () => col(USAGE),
+  actresses: () => col("actress_new"),
+};

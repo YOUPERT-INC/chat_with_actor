@@ -1,0 +1,20 @@
+{
+  "name": "chat_with_actor",
+  "version": "0.1.0",
+  "description": "AI actor-avatar chat server for Flix1 (persona from actress_new Korean description, DeepSeek model)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "axios": "^1.7.0",
+    "dotenv": "^16.4.0",
+    "express": "^4.19.0",
+    "mongoose": "^6.13.0"
+  }
+}
