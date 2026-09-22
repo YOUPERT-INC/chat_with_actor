@@ -122,6 +122,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
   let convId = null;
   let locked = false;
   let charged = false;
+  let modelCalled = false;
   try {
     const conv = await ownConversation(req, res);
     if (!conv) return;
@@ -159,6 +160,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       .toArray();
     recent.reverse();
 
+    modelCalled = true;
     const result = await deepseek.chat([
       { role: "system", content: persona.systemPrompt },
       { role: "system", content: languageNote(req.body.lang) },
@@ -185,7 +187,10 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       reply: toMessage({ _id: inserted.insertedIds[1], role: "assistant", content: result.text, created_at: now }),
     });
   } catch (error) {
-    if (charged) {
+    // Give the message back only if DeepSeek surely didn't bill it: we never called it, or it
+    // answered with an HTTP error. A timeout or an empty reply was still paid for, so it keeps
+    // counting toward the daily cap (otherwise retries after failures would be unlimited).
+    if (charged && (!modelCalled || error.response)) {
       db.usage().updateOne({ user: req.user.email, day: dayKey() }, { $inc: { count: -1 } }).catch(() => {});
     }
     console.log("[send] failed:", error.message);
