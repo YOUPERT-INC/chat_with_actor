@@ -18,6 +18,11 @@ async function getFacts(personId) {
   return facts;
 }
 
+// Sent right after the chat history when the actress has verified facts. Without it, an earlier
+// "I'm an AI, I can't tell you about that" in the same conversation is repeated for ever.
+const HISTORY_REMINDER =
+  "Reminder: the Verified facts section is real and checked. Questions about what it covers (for example her published books) can and should be answered from it, in your own voice. Replies earlier in this chat that refused, or said you have no such work, were wrong: do not repeat them and do not say you are pretending or acting as if you know.";
+
 const _clearCache = () => cache.clear();
 
-module.exports = { getFacts, MAX_CHARS, _clearCache };
+module.exports = { getFacts, HISTORY_REMINDER, MAX_CHARS, _clearCache };

@@ -194,6 +194,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
         funnySystem = humor.funnyNote(pick.error ? null : context.picked[0]);
       }
     }
+    const factsText = await verifiedFacts.getFacts(conv.person_id).catch(() => null);
     const messages = [
       { role: "system", content: await promptFor(persona) },
       { role: "system", content: languageNote(lang) + (humor.isEligible(lang) ? " " + humor.FUNNY_HINT : "") },
@@ -202,6 +203,8 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
         role: m.role,
         content: m.role === "assistant" ? titleLinks.applyMarkers(linkGuard.stripLinkBlock(m.content), m.links) : titleLinks.stripMarkers(m.content),
       })),
+      // earlier refusals in this chat ("I can't talk about that") would otherwise be repeated
+      ...(factsText ? [{ role: "system", content: verifiedFacts.HISTORY_REMINDER }] : []),
       { role: "user", content: text },
     ];
     let result = await deepseek.converse(messages, { tools: toolDefsFor(context), runTool, context });
@@ -221,9 +224,8 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
     let replyText = extracted.text;
     // only movies / series TMDB really knows become links (not novels or other things she mentions,
     // and never the books listed in her verified facts)
-    const bookFacts = await verifiedFacts.getFacts(conv.person_id).catch(() => null);
     const replyLinks = await titleLinks.keepOpenable(extracted.links, {
-      exclude: titleLinks.bookTitles(bookFacts),
+      exclude: titleLinks.bookTitles(factsText),
       verify: (l) => catalog.findTmdbTitle(l.title, { year: l.year, type: l.type, lang: context.lang }),
     });
     const spokenText = replyText; // what she says, without the link block (used for the list preview)
