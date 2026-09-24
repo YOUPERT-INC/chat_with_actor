@@ -3,8 +3,10 @@ const { ObjectId } = require("mongoose").Types;
 const config = require("./config");
 const db = require("./db");
 const { requireUser, membershipActive } = require("./auth");
-const { getPersona, languageNote } = require("./persona");
+const { getPersona, promptFor, prewarmCard, languageNote } = require("./persona");
+const { trimToLastSentence } = require("./text");
 const deepseek = require("./deepseek");
+const { TOOL_DEFS, runTool } = require("./tools");
 const { avatarUrl } = require("./images");
 
 const router = express.Router();
@@ -85,6 +87,8 @@ router.post("/conversations", async (req, res, next) => {
     const persona = await getPersona(personId);
     if (!persona) return res.status(409).json({ error: "NO_PROFILE" });
 
+    prewarmCard(persona); // make her character card while the user is still opening the chat
+
     const now = new Date();
     await db.conversations().updateOne(
       { user: req.user.email, person_id: personId },
@@ -161,22 +165,26 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
     recent.reverse();
 
     modelCalled = true;
-    const result = await deepseek.chat([
-      { role: "system", content: persona.systemPrompt },
-      { role: "system", content: languageNote(req.body.lang) },
+    const lang = req.body.lang;
+    const result = await deepseek.converse([
+      { role: "system", content: await promptFor(persona) },
+      { role: "system", content: languageNote(lang) },
       ...recent.map((m) => ({ role: m.role, content: m.content })),
       { role: "user", content: text },
-    ]);
+    ], { tools: TOOL_DEFS, runTool, context: { lang: String(lang || "en").toLowerCase(), country: req.headers["cf-ipcountry"] } });
+
+    // ran out of tokens mid-sentence: don't show (or store) a half-finished reply
+    const replyText = result.finishReason === "length" ? trimToLastSentence(result.text) : result.text;
 
     const now = new Date();
     const inserted = await db.messages().insertMany([
       { conversation_id: conv._id, role: "user", content: text, created_at: now },
-      { conversation_id: conv._id, role: "assistant", content: result.text, created_at: new Date(now.getTime() + 1) },
+      { conversation_id: conv._id, role: "assistant", content: replyText, created_at: new Date(now.getTime() + 1) },
     ]);
     await db.conversations().updateOne(
       { _id: conv._id },
       {
-        $set: { last_message: result.text.slice(0, 200), last_message_at: new Date(), actor_names: persona.displayNames, actor_avatar: persona.avatar },
+        $set: { last_message: replyText.slice(0, 200), last_message_at: new Date(), actor_names: persona.displayNames, actor_avatar: persona.avatar },
         $inc: { message_count: 2 },
       }
     );
@@ -184,7 +192,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
 
     res.json({
       user_message: toMessage({ _id: inserted.insertedIds[0], role: "user", content: text, created_at: now }),
-      reply: toMessage({ _id: inserted.insertedIds[1], role: "assistant", content: result.text, created_at: now }),
+      reply: toMessage({ _id: inserted.insertedIds[1], role: "assistant", content: replyText, created_at: now }),
     });
   } catch (error) {
     // Give the message back only if DeepSeek surely didn't bill it: we never called it, or it

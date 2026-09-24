@@ -17,5 +17,7 @@ module.exports = {
   historyMessages: int(process.env.HISTORY_MESSAGES, 30),
   // chat is limited to actresses whose Korean description is long enough to build a persona
   minDescriptionChars: int(process.env.MIN_DESCRIPTION_CHARS, 300),
-  maxOutputTokens: int(process.env.MAX_OUTPUT_TOKENS, 500),
+  // live chart lookups for recommendations (tmdb: same bearer token imdb7plus uses)
+  tmdbBearer: process.env.TMDB_API_BEARER || "",
+  maxOutputTokens: int(process.env.MAX_OUTPUT_TOKENS, 700),
 };

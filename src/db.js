@@ -5,6 +5,7 @@ const config = require("./config");
 const CONVERSATIONS = "actor_chat_conversations";
 const MESSAGES = "actor_chat_messages";
 const USAGE = "actor_chat_usage";
+const CARDS = "actor_persona_cards";
 
 async function connect() {
   if (!config.mongoUri) throw new Error("MONGODB_URI is not set");
@@ -14,6 +15,7 @@ async function connect() {
   await db.collection(CONVERSATIONS).createIndex({ user: 1, last_message_at: -1 });
   await db.collection(MESSAGES).createIndex({ conversation_id: 1, _id: -1 });
   await db.collection(USAGE).createIndex({ user: 1, day: 1 }, { unique: true });
+  await db.collection(CARDS).createIndex({ person_id: 1 }, { unique: true });
   // usage rows are only needed for the current day
   await db.collection(USAGE).createIndex({ created_at: 1 }, { expireAfterSeconds: 3 * 24 * 3600 });
   return db;
@@ -26,5 +28,6 @@ module.exports = {
   conversations: () => col(CONVERSATIONS),
   messages: () => col(MESSAGES),
   usage: () => col(USAGE),
+  cards: () => col(CARDS),
   actresses: () => col("actress_new"),
 };

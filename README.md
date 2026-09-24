@@ -7,16 +7,22 @@ AI actor-avatar chat server for Flix1. Node.js / Express + MongoDB, model = Deep
 - Avatar URLs are rewritten per request to `https://image.<Host the app called>` (the real API domain from `/lookup`), so nothing image-related is configured on this server.
 - Chat is a paid feature: the account's `sub_expires_at` (epoch ms) from the same `/profile` call must be in the future, otherwise creating a conversation or sending is refused with `403 MEMBERSHIP_REQUIRED` (no admin exception). Identity is cached 10 minutes, but "no membership" is never served from cache: it is re-checked live on every attempt, so a user who just subscribed gets in immediately. Reading or deleting old conversations stays open.
 - Only actresses whose Korean description has at least `MIN_DESCRIPTION_CHARS` (300) characters can be chatted with.
+- **Character card** (`src/personaCard.js`): the Korean description alone is thin, so on first use a per-actress card is generated once (personality, speaking style, favourites, everyday life, conversation hooks), validated (no links/handles/phone numbers/adult content, sections present) and stored in `actor_persona_cards`; it is regenerated when her Korean description changes. It is fictional character material, injected into the persona prompt (still identical for every user of that actress, so the prompt cache applies). The card is prewarmed when a conversation is created; if it cannot be made the chat still works without it and retries later.
+- The prompt makes the avatar proactive: it shares tastes, recommends concrete real titles (up to 5 when asked for a list), and tells small invented everyday moments, while the hard rules (no explicit talk, no meeting, no money/personal data, minors, crisis, no phone numbers) stay above everything. A reply cut off by the token limit is trimmed back to the last full sentence (`MAX_OUTPUT_TOKENS`, default 700).
+- **Live charts** (`src/tools.js`, `src/catalog.js`): the model may call `get_popular_titles` (function calling, at most 2 rounds and 4 parallel lookups per message). Default `kind=popular` = what is popular RIGHT NOW in the user's country (Cloudflare's `cf-ipcountry`, else guessed from the chat language; the model can pass another `region` when the user asks about one): movies = recent releases in that region by popularity; TV = recently started, currently airing series, worldwide plus the country's own-language productions (TMDB has no per-country TV popularity); anime = AniList trending. `trending` = hot this week worldwide; `top_rated` only when the user explicitly asks for the best ever (TMDB `/discover` with a vote floor, because its raw `/top_rated` is topped by brand-new titles). A second tool, `get_catalog_picks`, returns RANDOM popular titles of the user's country from Flix1's own catalogue (imdb7plus `GET /swm/movie/random-list?most_popular=true&size=5&country=...&category=`), all playable in the app; the avatar calls it together with the charts for movie/TV recommendations and mixes a couple in, so repeated asks do not give the same answers. The API's `country` is a case-insensitive regex over English production-country NAMES, so the server sends `\b(South Korea)\b`-style patterns from a code-to-name table (an ISO code would match `Ukraine`); the API domain is resolved from the lookup alias `imdb7.plus` (cached, fallback `flix1.net`); results are never cached; the catalogue has no anime at the moment, so anime uses AniList only. An optional `genre` lets the avatar answer "what did you enjoy?" as its character: one lookup per genre it loves (see the character card). Anime comes from AniList (no key), movies and TV from TMDB (`TMDB_API_BEARER`, same token imdb7plus uses). Only title/year/score/genres go back to the model (no free text from the sources), adult and ecchi titles are excluded at the source, results are cached 30 minutes, and a failed lookup never reaches the user: the avatar answers from what it knows and says it may be out of date. The server log shows every lookup (`[tool] ... region=KR -> n items`).
+- Cards are frozen once created (a changed Korean description does not touch them). To make one again on purpose: `node scripts/regenerate-persona-card.js <person_id ...|--all> [--dry-run]`, then `pm2 restart chat-ai`.
 - Text only for now (no image / document upload).
 
 ## Run
 
 ```bash
-cp .env.example .env   # fill MONGODB_URI, DEEPSEEK_API_KEY
+cp .env.example .env   # fill MONGODB_URI, DEEPSEEK_API_KEY, TMDB_API_BEARER
 npm install
 npm start              # PORT (default 8004)
 npm test
 ```
+
+Model behaviour check (needs a valid DEEPSEEK_API_KEY; prints replies for a human to read): `node scripts/roleplay-probe.js <actresses.json> <out.json>` (`ONLY=explicit,minor` limits the probes).
 
 Deploy (server 172.104.71.28, next to `www`): `git pull && npm install && pm2 start src/server.js --name chat-ai` (`pm2 restart chat-ai` after that).
 nginx: proxy `location /chat-ai/ { proxy_pass http://127.0.0.1:8004; }` on the same API domains, so the app needs no new domain.
@@ -35,4 +41,4 @@ nginx: proxy `location /chat-ai/ { proxy_pass http://127.0.0.1:8004; }` on the s
 
 Errors: `LOGIN_REQUIRED` 401, `MEMBERSHIP_REQUIRED` 403, `AUTH_UNAVAILABLE` 502 (account server unreachable), `NO_PROFILE` 409, `BUSY` 429 (one call per conversation at a time), `DAILY_LIMIT` 429, `MESSAGE_TOO_LONG` 400, `MODEL_UNAVAILABLE` 502.
 
-Collections written: `actor_chat_conversations`, `actor_chat_messages`, `actor_chat_usage` (daily counter, auto-expires). `actress_new` is read-only here.
+Collections written: `actor_chat_conversations`, `actor_chat_messages`, `actor_chat_usage` (daily counter, auto-expires), `actor_persona_cards`. `actress_new` is read-only here.
