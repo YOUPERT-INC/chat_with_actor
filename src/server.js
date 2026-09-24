@@ -2,6 +2,7 @@ const express = require("express");
 const config = require("./config");
 const db = require("./db");
 const routes = require("./routes");
+const humor = require("./humor");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -21,6 +22,7 @@ app.use((err, req, res, next) => {
 db.connect()
   .then(() => {
     app.listen(config.port, () => console.log(`chat_with_actor listening on ${config.port}`));
+    humor.startRefresh();
   })
   .catch((error) => {
     console.error("startup failed:", error.message);

@@ -19,5 +19,8 @@ module.exports = {
   minDescriptionChars: int(process.env.MIN_DESCRIPTION_CHARS, 300),
   // live chart lookups for recommendations (tmdb: same bearer token imdb7plus uses)
   tmdbBearer: process.env.TMDB_API_BEARER || "",
+  // funny-post links for Korean users (src/humor.js)
+  humorEnabled: process.env.HUMOR_ENABLED !== "0",
+  humorRefreshMs: Math.max(10, int(process.env.HUMOR_REFRESH_MINUTES, 10)) * 60 * 1000, // never more often than every 10 minutes
   maxOutputTokens: int(process.env.MAX_OUTPUT_TOKENS, 700),
 };

@@ -4,6 +4,7 @@
  * from real data (for the user's own country) instead of the model's older memory.
  */
 const catalog = require("./catalog");
+const humor = require("./humor");
 
 const TOOL_DEFS = [
   {
@@ -57,7 +58,26 @@ const TOOL_DEFS = [
   },
 ];
 
+// Only offered to Korean-language users (the posts are Korean); see toolDefsFor().
+const FUNNY_TOOL = {
+  type: "function",
+  function: {
+    name: "get_funny_post",
+    description:
+      "Pick ONE currently popular funny post from a Korean online community to share with the user; the app adds the link " +
+      "to your message by itself. Use it only when the user says they are bored, asks for something funny or entertaining, " +
+      "or asks what is trending in Korean communities. Never use it unprompted or for other kinds of requests.",
+    parameters: { type: "object", properties: {} },
+  },
+};
+
+/** Tool definitions for this request: the always-on ones, plus the funny-post tool for Korean users. */
+function toolDefsFor(context = {}) {
+  return humor.isEligible(context.lang) ? [...TOOL_DEFS, FUNNY_TOOL] : TOOL_DEFS;
+}
+
 const RUNNERS = {
+  get_funny_post: (args, context) => humor.pickForContext(context),
   get_popular_titles: (args, context) => catalog.getPopularTitles(args, context),
   get_catalog_picks: (args, context) => catalog.getCatalogPicks(args, context),
 };
@@ -76,7 +96,13 @@ async function runTool(name, rawArgs, context = {}) {
     const run = RUNNERS[name];
     if (!run) return { error: "unknown tool" };
     const result = await run(args, context);
-    const n = result.items.length + (result.local_items ? result.local_items.length : 0);
+    const n = (result.items || []).length + (result.local_items ? result.local_items.length : 0);
+    if (Array.isArray(context.knownTitles)) {
+      const type = result.category === "movie" || result.category === "tv" ? result.category : null;
+      for (const item of [...(result.items || []), ...(result.local_items || [])]) {
+        if (item && item.title) context.knownTitles.push({ ...item, type: item.type || type });
+      }
+    }
     console.log(`[tool] ${name} ${JSON.stringify(args)} region=${result.region || "-"} -> ${n} items ${Date.now() - started}ms`);
     return result;
   } catch (error) {
@@ -85,4 +111,4 @@ async function runTool(name, rawArgs, context = {}) {
   }
 }
 
-module.exports = { TOOL_DEFS, runTool };
+module.exports = { TOOL_DEFS, FUNNY_TOOL, toolDefsFor, runTool };

@@ -6,8 +6,11 @@ const { requireUser, membershipActive } = require("./auth");
 const { getPersona, promptFor, prewarmCard, languageNote } = require("./persona");
 const { trimToLastSentence } = require("./text");
 const deepseek = require("./deepseek");
-const { TOOL_DEFS, runTool } = require("./tools");
+const { toolDefsFor, runTool } = require("./tools");
+const humor = require("./humor");
+const linkGuard = require("./linkGuard");
 const { avatarUrl } = require("./images");
+const titleLinks = require("./titleLinks");
 
 const router = express.Router();
 
@@ -27,7 +30,9 @@ function toConversation(c, req) {
 }
 
 function toMessage(m) {
-  return { id: String(m._id), role: m.role, content: m.content, created_at: m.created_at };
+  const out = { id: String(m._id), role: m.role, content: m.content, created_at: m.created_at };
+  if (Array.isArray(m.links) && m.links.length) out.links = m.links;
+  return out;
 }
 
 function parseId(value) {
@@ -166,33 +171,81 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
 
     modelCalled = true;
     const lang = req.body.lang;
-    const result = await deepseek.converse([
+    // links already sent in this conversation are never sent again; `picked` collects the one
+    // the model chose this turn (the server, not the model, writes the address)
+    const context = {
+      lang: String(lang || "en").toLowerCase(),
+      country: req.headers["cf-ipcountry"],
+      sharedUrls: new Set(conv.shared_urls || []),
+      picked: [],
+      knownTitles: [], // titles the tools returned this turn (their type helps the app open the right page)
+    };
+    // Clear "something funny" requests (and "another one" right after a link) are handled by the
+    // server: it picks the post and tells the model exactly what to say, or that there is none.
+    // Left to the model it made up posts without calling the tool.
+    let funnySystem = null;
+    if (humor.isEligible(lang)) {
+      const lastAssistant = [...recent].reverse().find((m) => m.role === "assistant");
+      const afterLink = Boolean(lastAssistant && linkGuard.LINK_BLOCK_RE.test(lastAssistant.content));
+      if (humor.wantsFunnyPost(text, { afterLink })) {
+        const pick = await humor.pickForContext(context);
+        funnySystem = humor.funnyNote(pick.error ? null : context.picked[0]);
+      }
+    }
+    const messages = [
       { role: "system", content: await promptFor(persona) },
-      { role: "system", content: languageNote(lang) },
-      ...recent.map((m) => ({ role: m.role, content: m.content })),
+      { role: "system", content: languageNote(lang) + (humor.isEligible(lang) ? " " + humor.FUNNY_HINT : "") },
+      ...(funnySystem ? [{ role: "system", content: funnySystem }] : []),
+      ...recent.map((m) => ({
+        role: m.role,
+        content: m.role === "assistant" ? titleLinks.applyMarkers(linkGuard.stripLinkBlock(m.content), m.links) : titleLinks.stripMarkers(m.content),
+      })),
       { role: "user", content: text },
-    ], { tools: TOOL_DEFS, runTool, context: { lang: String(lang || "en").toLowerCase(), country: req.headers["cf-ipcountry"] } });
+    ];
+    let result = await deepseek.converse(messages, { tools: toolDefsFor(context), runTool, context });
+    // A draft that says it found / brought a post while the app has none for this message is a
+    // made-up post: have it rewritten once, without tools, and without such claims.
+    if (humor.isEligible(lang) && !context.picked.length && humor.claimsPost(result.text)) {
+      console.log("[humor] draft claimed a post without a link; rewriting");
+      result = await deepseek.converse([...messages, { role: "system", content: humor.NO_CLAIM_NOTE }], {});
+    }
 
     // ran out of tokens mid-sentence: don't show (or store) a half-finished reply
-    const replyText = result.finishReason === "length" ? trimToLastSentence(result.text) : result.text;
+    // nothing link-like the model wrote is trusted (it invents addresses); real links are appended below
+    const modelText = linkGuard.stripModelLinks(result.text) || result.text.replace(/https?:\/\/\S+/g, "").trim();
+    const trimmedText = result.finishReason === "length" ? trimToLastSentence(modelText) : modelText;
+    // ⟦Title⟧ markers become plain text plus positions (`links`); the link block below is appended after them
+    const extracted = titleLinks.extractTitleLinks(trimmedText, context.knownTitles);
+    let replyText = extracted.text;
+    const replyLinks = extracted.links;
+    const spokenText = replyText; // what she says, without the link block (used for the list preview)
+    const sharedPost = context.picked[0] || null; // one link per message
+    if (sharedPost) replyText += humor.linkBlock(sharedPost);
 
     const now = new Date();
     const inserted = await db.messages().insertMany([
       { conversation_id: conv._id, role: "user", content: text, created_at: now },
-      { conversation_id: conv._id, role: "assistant", content: replyText, created_at: new Date(now.getTime() + 1) },
+      {
+        conversation_id: conv._id,
+        role: "assistant",
+        content: replyText,
+        created_at: new Date(now.getTime() + 1),
+        ...(replyLinks.length ? { links: replyLinks } : {}),
+      },
     ]);
     await db.conversations().updateOne(
       { _id: conv._id },
       {
-        $set: { last_message: replyText.slice(0, 200), last_message_at: new Date(), actor_names: persona.displayNames, actor_avatar: persona.avatar },
+        $set: { last_message: spokenText.slice(0, 200), last_message_at: new Date(), actor_names: persona.displayNames, actor_avatar: persona.avatar },
         $inc: { message_count: 2 },
+        ...(sharedPost ? { $push: { shared_urls: { $each: [sharedPost.url], $slice: -300 } } } : {}),
       }
     );
     charged = false; // succeeded: the count stands
 
     res.json({
       user_message: toMessage({ _id: inserted.insertedIds[0], role: "user", content: text, created_at: now }),
-      reply: toMessage({ _id: inserted.insertedIds[1], role: "assistant", content: replyText, created_at: now }),
+      reply: toMessage({ _id: inserted.insertedIds[1], role: "assistant", content: replyText, created_at: now, links: replyLinks }),
     });
   } catch (error) {
     // Give the message back only if DeepSeek surely didn't bill it: we never called it, or it
