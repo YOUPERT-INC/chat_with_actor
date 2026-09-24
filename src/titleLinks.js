@@ -47,6 +47,40 @@ function extractTitleLinks(text, known = []) {
   return { text: out, links };
 }
 
+const normName = (t) => String(t || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
+/** Titles of the books listed in a verified-facts text ("1. 「최저。」 (最低。, ..."): both names. */
+function bookTitles(facts) {
+  const names = new Set();
+  for (const m of String(facts || "").matchAll(/^\s*\d+\.\s*「([^」]+)」\s*\(([^,)"]+)/gm)) {
+    names.add(normName(m[1]));
+    names.add(normName(m[2]));
+  }
+  names.delete("");
+  return names;
+}
+
+/**
+ * Keeps only the links the app can really open: a title in `exclude` (books and the like) never
+ * gets one, and `verify` (TMDB) must know it as a movie or series. A failed check drops the link:
+ * no link is better than a wrong page. Text and offsets are untouched.
+ */
+async function keepOpenable(links, { exclude = new Set(), verify }) {
+  const kept = [];
+  await Promise.all(
+    links.map(async (link, i) => {
+      if (exclude.has(normName(link.title))) return;
+      try {
+        const hit = await verify(link);
+        if (hit) kept[i] = { ...link, type: hit.type || link.type, year: link.year || hit.year || null };
+      } catch (error) {
+        console.log(`[title-links] check failed for "${link.title}": ${error.message}`);
+      }
+    })
+  );
+  return kept.filter(Boolean);
+}
+
 /** Put the markers back into a stored reply so the model keeps seeing (and using) the format. */
 function applyMarkers(content, links) {
   if (!Array.isArray(links) || !links.length) return content;
@@ -62,4 +96,4 @@ function applyMarkers(content, links) {
 
 const stripMarkers = (text) => String(text).split(OPEN).join("").split(CLOSE).join("");
 
-module.exports = { extractTitleLinks, applyMarkers, stripMarkers, OPEN, CLOSE };
+module.exports = { extractTitleLinks, keepOpenable, bookTitles, applyMarkers, stripMarkers, OPEN, CLOSE };

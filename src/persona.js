@@ -154,7 +154,14 @@ async function promptFor(persona) {
   if (hit && hit.exp > Date.now()) return hit.prompt;
 
   const card = await cards.getCard(persona.personId, persona.koDescription);
-  const facts = await verifiedFacts.getFacts(persona.personId);
+  let facts = null;
+  let factsOk = true;
+  try {
+    facts = await verifiedFacts.getFacts(persona.personId);
+  } catch (error) {
+    factsOk = false; // chat goes on without them; asked again soon
+    console.log("[verified-facts] read failed:", error.message);
+  }
   const prompt =
     card || facts
       ? buildSystemPrompt({ names: persona.names, spec: persona.spec, koDescription: persona.koDescription, card, facts })

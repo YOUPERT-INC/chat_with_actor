@@ -104,3 +104,30 @@ test("verified facts appear only when given, and relax only the career rule", ()
   assert.ok(p.includes("You are still an AI avatar"));
   assert.strictEqual(p, buildSystemPrompt({ ...args, facts: "She wrote two novels." }));
 });
+
+// promptFor glues card + verified facts + cache expiry together; it once shipped with an undefined variable
+test("promptFor: includes facts, survives a failing facts read, never caches that prompt for long", async () => {
+  const cardsMod = require("../src/personaCard");
+  const factsMod = require("../src/verifiedFacts");
+  const { promptFor } = require("../src/persona");
+  const origCard = cardsMod.getCard;
+  const origFacts = factsMod.getFacts;
+  const persona = (id) => ({ personId: id, names: { en: "A" }, spec: {}, koDescription: "한국어", systemPrompt: "plain" });
+  try {
+    cardsMod.getCard = async () => "Personality: shy";
+    factsMod.getFacts = async () => "She wrote a novel.";
+    const ok = await promptFor(persona("T1"));
+    assert.ok(ok.includes("She wrote a novel.") && ok.includes("Personality: shy"));
+
+    factsMod.getFacts = async () => {
+      throw new Error("db down");
+    };
+    const failed = await promptFor(persona("T2"));
+    assert.ok(failed.includes("Personality: shy") && !failed.includes("Verified facts about the real person"));
+    factsMod.getFacts = async () => "Now available.";
+    assert.ok((await promptFor(persona("T2"))).includes("Now available.") === false, "cached briefly (60 s), not refetched at once");
+  } finally {
+    cardsMod.getCard = origCard;
+    factsMod.getFacts = origFacts;
+  }
+});

@@ -31,3 +31,28 @@ test("applyMarkers restores what extract removed", () => {
   assert.strictEqual(applyMarkers(text, links), original);
   assert.strictEqual(stripMarkers(original), text);
 });
+
+const { keepOpenable, bookTitles } = require("../src/titleLinks");
+
+test("bookTitles reads both names of numbered book lines", () => {
+  const facts = '1. 「최저。」 (最低。, "Saitei.") - debut\n2. 「요철」 (凹凸, "Outotsu") - novel';
+  const names = bookTitles(facts);
+  for (const n of ["최저", "最低", "요철", "凹凸"]) assert.ok(names.has(n), n);
+});
+
+test("keepOpenable drops books, unknown titles and failed checks; fills type and year", async () => {
+  const links = [
+    { start: 0, end: 2, title: "최저", year: null, type: null }, // her book
+    { start: 3, end: 6, title: "Severance", year: null, type: null }, // known series
+    { start: 7, end: 9, title: "Some Novel", year: 2001, type: null }, // TMDB has no such movie/series
+    { start: 10, end: 12, title: "Boom", year: null, type: null }, // check fails
+  ];
+  const verify = async (l) => {
+    if (l.title === "Severance") return { type: "tv", year: 2022 };
+    if (l.title === "Boom") throw new Error("timeout");
+    return null;
+  };
+  const kept = await keepOpenable(links, { exclude: bookTitles('1. 「최저。」 (最低。, "x")'), verify });
+  assert.strictEqual(kept.length, 1);
+  assert.deepStrictEqual([kept[0].title, kept[0].type, kept[0].year], ["Severance", "tv", 2022]);
+});

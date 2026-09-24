@@ -149,6 +149,38 @@ async function tmdbGet(path, params, lang) {
   return results;
 }
 
+const norm = (t) => String(t || "").toLowerCase().replace(/[^p{L}p{N}]+/gu, "");
+const searchCache = new Map(); // "lang|title" -> { exp, results }
+
+/**
+ * Is this a movie or TV series TMDB knows (i.e. something the app can open a detail page for)?
+ * A hit needs the same title (title / original title, punctuation and case ignored) and, when a
+ * year is given, a release year within one year. Returns {type, year} or null. Throws when TMDB
+ * can't be reached (the caller then shows no link).
+ */
+async function findTmdbTitle(title, { year = null, type = null, lang = "en" } = {}) {
+  const wanted = norm(title);
+  if (!wanted) return null;
+  const key = `${lang}|${wanted}`;
+  let entry = searchCache.get(key);
+  if (!entry || entry.exp < Date.now()) {
+    const results = await tmdbGet("/search/multi", { query: title }, lang);
+    entry = { exp: Date.now() + 24 * 60 * 60 * 1000, results };
+    if (searchCache.size > 2000) searchCache.clear();
+    searchCache.set(key, entry);
+  }
+  for (const r of entry.results) {
+    if (r.media_type !== "movie" && r.media_type !== "tv") continue;
+    if (type && r.media_type !== type) continue;
+    const names = [r.title, r.name, r.original_title, r.original_name].map(norm);
+    if (!names.includes(wanted)) continue;
+    const y = parseInt(String(r.release_date || r.first_air_date || "").slice(0, 4), 10) || null;
+    if (year && y && Math.abs(y - year) > 1) continue;
+    return { type: r.media_type, year: y };
+  }
+  return null;
+}
+
 /** movie / tv charts. Returns { items, local_items? }. */
 async function tmdb(category, kind, count, lang, region, genre) {
   const genreId = (category === "movie" ? MOVIE_GENRE_IDS : TV_GENRE_IDS)[genre];
@@ -329,7 +361,8 @@ async function getCatalogPicks(args = {}, { lang = "en", country = "" } = {}) {
 
 const _clearCache = () => {
   cache.clear();
+  searchCache.clear();
   mHost = { value: null, exp: 0 };
 };
 
-module.exports = { getPopularTitles, getCatalogPicks, resolveRegion, clean, _clearCache, CATEGORIES, KINDS, GENRES, COUNTRY_NAMES };
+module.exports = { findTmdbTitle, getPopularTitles, getCatalogPicks, resolveRegion, clean, _clearCache, CATEGORIES, KINDS, GENRES, COUNTRY_NAMES };
