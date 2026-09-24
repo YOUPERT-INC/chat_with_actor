@@ -205,6 +205,8 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       })),
       // earlier refusals in this chat ("I can't talk about that") would otherwise be repeated
       ...(factsText ? [{ role: "system", content: verifiedFacts.HISTORY_REMINDER }] : []),
+      // ...and the ⟦ ⟧ format is dropped once earlier replies in the chat have none
+      { role: "system", content: titleLinks.MARK_REMINDER },
       { role: "user", content: text },
     ];
     let result = await deepseek.converse(messages, { tools: toolDefsFor(context), runTool, context });

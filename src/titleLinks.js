@@ -94,6 +94,11 @@ function applyMarkers(content, links) {
   return out + content.slice(cursor);
 }
 
-const stripMarkers = (text) => String(text).split(OPEN).join("").split(CLOSE).join("");
+// Sent right after the chat history. In a chat whose earlier replies have no markers the model
+// copies that habit and the app gets no links (seen in production), so it is repeated here.
+const MARK_REMINDER =
+  "Format reminder: wrap the name of every movie, TV series or anime you mention in ⟦ ⟧ followed by its year in normal brackets, as in ⟦Parasite⟧ (2019), even if your earlier replies in this chat did not. Never for books, games, music or people.";
 
-module.exports = { extractTitleLinks, keepOpenable, bookTitles, applyMarkers, stripMarkers, OPEN, CLOSE };
+const stripMarkers =(text) => String(text).split(OPEN).join("").split(CLOSE).join("");
+
+module.exports = { extractTitleLinks, keepOpenable, bookTitles, applyMarkers, stripMarkers, MARK_REMINDER, OPEN, CLOSE };
