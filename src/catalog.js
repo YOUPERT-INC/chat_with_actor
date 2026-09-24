@@ -149,7 +149,7 @@ async function tmdbGet(path, params, lang) {
   return results;
 }
 
-const norm = (t) => String(t || "").toLowerCase().replace(/[^p{L}p{N}]+/gu, "");
+const norm = (t) => String(t || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 const searchCache = new Map(); // "lang|title" -> { exp, results }
 
 /**
