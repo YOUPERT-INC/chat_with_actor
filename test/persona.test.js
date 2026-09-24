@@ -94,3 +94,13 @@ test("prompt asks for catalogue picks together with the charts on every recommen
   assert.ok(p.includes("also call get_catalog_picks together with get_popular_titles"));
   assert.ok(p.includes("can be watched right here in the app"));
 });
+
+test("verified facts appear only when given, and relax only the career rule", () => {
+  const args = { names: { en: "A" }, spec: {}, koDescription: "한국어" };
+  assert.ok(!buildSystemPrompt(args).includes("Verified facts about the real person"));
+  const p = buildSystemPrompt({ ...args, facts: "She wrote two novels." });
+  assert.ok(p.includes("## Verified facts about the real person"));
+  assert.ok(p.includes("She wrote two novels."));
+  assert.ok(p.includes("You are still an AI avatar"));
+  assert.strictEqual(p, buildSystemPrompt({ ...args, facts: "She wrote two novels." }));
+});

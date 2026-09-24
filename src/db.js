@@ -7,6 +7,7 @@ const MESSAGES = "actor_chat_messages";
 const USAGE = "actor_chat_usage";
 const CARDS = "actor_persona_cards";
 const HUMOR = "actor_humor_posts";
+const FACTS = "actor_verified_facts";
 
 async function connect() {
   if (!config.mongoUri) throw new Error("MONGODB_URI is not set");
@@ -17,6 +18,7 @@ async function connect() {
   await db.collection(MESSAGES).createIndex({ conversation_id: 1, _id: -1 });
   await db.collection(USAGE).createIndex({ user: 1, day: 1 }, { unique: true });
   await db.collection(CARDS).createIndex({ person_id: 1 }, { unique: true });
+  await db.collection(FACTS).createIndex({ person_id: 1 }, { unique: true });
   await db.collection(HUMOR).createIndex({ source: 1, post_id: 1 }, { unique: true });
   await db.collection(HUMOR).createIndex({ source: 1, post_num: -1 });
   await db.collection(HUMOR).createIndex({ source: 1, first_seen: -1, views: -1 });
@@ -35,6 +37,7 @@ module.exports = {
   messages: () => col(MESSAGES),
   usage: () => col(USAGE),
   cards: () => col(CARDS),
+  verifiedFacts: () => col(FACTS),
   humorPosts: () => col(HUMOR),
   actresses: () => col("actress_new"),
 };

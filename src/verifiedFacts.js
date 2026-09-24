@@ -1,0 +1,23 @@
+// Verified facts about the REAL person behind an avatar (published works and the like), stored per
+// actress in `actor_verified_facts` and added to her prompt. Only what is written there may be
+// said as her own real background; everything else stays under the "never present the real
+// actress's career or life as yours" rule. Load with scripts/set-verified-facts.js.
+const db = require("./db");
+
+const TTL_MS = 60 * 60 * 1000;
+const MAX_CHARS = 6000;
+const cache = new Map(); // person_id -> { facts, exp }
+
+/** Throws when the database can't be read: the caller must not cache a prompt built without them. */
+async function getFacts(personId) {
+  const hit = cache.get(personId);
+  if (hit && hit.exp > Date.now()) return hit.facts;
+  const doc = await db.verifiedFacts().findOne({ person_id: personId });
+  const facts = doc && typeof doc.facts === "string" && doc.facts.trim() ? doc.facts.trim().slice(0, MAX_CHARS) : null;
+  cache.set(personId, { facts, exp: Date.now() + TTL_MS });
+  return facts;
+}
+
+const _clearCache = () => cache.clear();
+
+module.exports = { getFacts, MAX_CHARS, _clearCache };
