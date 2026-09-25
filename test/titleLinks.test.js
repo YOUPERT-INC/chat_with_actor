@@ -56,3 +56,32 @@ test("keepOpenable drops books, unknown titles and failed checks; fills type and
   assert.strictEqual(kept.length, 1);
   assert.deepStrictEqual([kept[0].title, kept[0].type, kept[0].year], ["Severance", "tv", 2022]);
 });
+
+test("ids of the source the title came from travel with the link, animation type stays open", () => {
+  const known = [
+    { title: "무빙", year: 2023, type: "tv", tmdb_id: 1, tmdb_type: "tv" },
+    { title: "리버스", year: 2025, type: "animation", imdb_id: "tt123" },
+  ];
+  const { links } = extractTitleLinks("⟦무빙⟧ (2023) 그리고 ⟦리버스⟧", known);
+  assert.deepStrictEqual([links[0].tmdb_id, links[0].type], [1, "tv"]);
+  assert.deepStrictEqual([links[1].imdb_id, links[1].type, links[1].tmdb_id], ["tt123", null, undefined]);
+});
+
+test("keepOpenable trusts ids (no lookup) and adds the TMDB id found by a name search", async () => {
+  let lookups = 0;
+  const verify = async () => {
+    lookups++;
+    return { type: "movie", year: 2020, id: 77 };
+  };
+  const kept = await keepOpenable(
+    [
+      { start: 0, end: 2, title: "A", year: 2023, type: "tv", tmdb_id: 1 },
+      { start: 3, end: 5, title: "B", year: null, type: null, imdb_id: "tt1" },
+      { start: 6, end: 8, title: "C", year: null, type: null },
+    ],
+    { verify }
+  );
+  assert.strictEqual(lookups, 1);
+  assert.strictEqual(kept.length, 3);
+  assert.strictEqual(kept[2].tmdb_id, 77);
+});

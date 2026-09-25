@@ -38,8 +38,14 @@ function extractTitleLinks(text, known = []) {
 
     const hit = byName.get(title.toLowerCase());
     const year = m[2] ? parseInt(m[2], 10) : (hit && hit.year) || null;
-    const type = hit && hit.type ? (hit.type === "animation" ? "tv" : hit.type) : null;
-    if (title && links.length < MAX_LINKS) links.push({ start, end, title, year, type });
+    // "animation" (Flix1 catalogue) says nothing about film vs series: leave the type open
+    const rawType = hit && (hit.tmdb_type || hit.type);
+    const type = rawType === "movie" || rawType === "tv" ? rawType : null;
+    const link = { start, end, title, year, type };
+    // ids of the source the title came from: the app opens the page by id, no name search
+    if (hit && hit.tmdb_id) link.tmdb_id = hit.tmdb_id;
+    if (hit && hit.imdb_id) link.imdb_id = hit.imdb_id;
+    if (title && links.length < MAX_LINKS) links.push(link);
   }
   out += text.slice(cursor);
   // a bracket left over (unclosed, or cut off by the token limit) is never shown
@@ -70,9 +76,16 @@ async function keepOpenable(links, { exclude = new Set(), verify }) {
   await Promise.all(
     links.map(async (link, i) => {
       if (exclude.has(normName(link.title))) return;
+      if (link.tmdb_id || link.imdb_id) {
+        kept[i] = link; // came from a chart / the catalogue with an id: nothing to look up
+        return;
+      }
       try {
         const hit = await verify(link);
-        if (hit) kept[i] = { ...link, type: hit.type || link.type, year: link.year || hit.year || null };
+        if (hit) {
+          kept[i] = { ...link, type: hit.type || link.type, year: link.year || hit.year || null };
+          if (hit.id) kept[i].tmdb_id = hit.id;
+        }
       } catch (error) {
         console.log(`[title-links] check failed for "${link.title}": ${error.message}`);
       }

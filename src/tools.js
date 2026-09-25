@@ -82,6 +82,20 @@ const RUNNERS = {
   get_catalog_picks: (args, context) => catalog.getCatalogPicks(args, context),
 };
 
+// Ids stay on the server (they go to the app as link data); the model only needs title, year, score.
+const stripIds = (item) => {
+  if (!item || typeof item !== "object" || Array.isArray(item)) return item;
+  const { tmdb_id, tmdb_type, imdb_id, ...rest } = item;
+  return rest;
+};
+function withoutIds(result) {
+  if (!result || typeof result !== "object") return result;
+  const out = { ...result };
+  if (Array.isArray(result.items)) out.items = result.items.map(stripIds);
+  if (Array.isArray(result.local_items)) out.local_items = result.local_items.map(stripIds);
+  return out;
+}
+
 /**
  * Runs one tool call for the model. Never throws: a failure becomes an `unavailable` result,
  * so the model answers from what it knows instead of the user seeing an error.
@@ -97,14 +111,15 @@ async function runTool(name, rawArgs, context = {}) {
     if (!run) return { error: "unknown tool" };
     const result = await run(args, context);
     const n = (result.items || []).length + (result.local_items ? result.local_items.length : 0);
+    const shown = withoutIds(result);
     if (Array.isArray(context.knownTitles)) {
       const type = result.category === "movie" || result.category === "tv" ? result.category : null;
       for (const item of [...(result.items || []), ...(result.local_items || [])]) {
-        if (item && item.title) context.knownTitles.push({ ...item, type: item.type || type });
+        if (item && item.title) context.knownTitles.push({ ...item, type: item.tmdb_type || item.type || type });
       }
     }
     console.log(`[tool] ${name} ${JSON.stringify(args)} region=${result.region || "-"} -> ${n} items ${Date.now() - started}ms`);
-    return result;
+    return shown;
   } catch (error) {
     console.log(`[tool] ${name} failed after ${Date.now() - started}ms: ${error.message}`);
     return { error: "unavailable", note: "The live chart could not be reached; answer from what you know and say it may be out of date." };

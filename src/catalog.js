@@ -114,7 +114,7 @@ async function anilist(kind, count, genre) {
   );
   const media = resp.data && resp.data.data && resp.data.data.Page && resp.data.data.Page.media;
   if (!Array.isArray(media)) throw new Error("unexpected AniList response");
-  return media.map((m) => ({
+  const items = media.map((m) => ({
     title: clean((m.title && (m.title.english || m.title.romaji)) || ""),
     original_title: clean(m.title && m.title.native),
     year: m.seasonYear || null,
@@ -122,6 +122,34 @@ async function anilist(kind, count, genre) {
     genres: (m.genres || []).slice(0, 4).map(clean),
     format: clean(m.format),
   }));
+  await Promise.all(items.map(attachTmdbId));
+  return items;
+}
+
+/**
+ * Many anime are on TMDB too: find the TMDB page of an AniList title (Japanese original title
+ * first, then the English / romaji one; same year +-1; a film for MOVIE, else a series).
+ * No match, or TMDB unreachable: the item just has no id and the app falls back to a name search.
+ */
+async function attachTmdbId(item) {
+  const type = item.format === "MOVIE" ? "movie" : "tv";
+  const tries = [
+    [item.original_title, "ja"],
+    [item.title, "en"],
+  ];
+  for (const [name, lang] of tries) {
+    if (!name) continue;
+    try {
+      const hit = await findTmdbTitle(name, { year: item.year, type, lang });
+      if (hit) {
+        item.tmdb_id = hit.id;
+        item.tmdb_type = hit.type;
+        return;
+      }
+    } catch (error) {
+      return; // TMDB down or no key: leave it without an id
+    }
+  }
 }
 
 function tmdbItems(results, count, genreId) {
@@ -134,6 +162,10 @@ function tmdbItems(results, count, genreId) {
       year: parseInt(String(r.release_date || r.first_air_date || "").slice(0, 4), 10) || null,
       score: r.vote_average ? Math.round(r.vote_average * 10) / 10 : null,
       genres: (r.genre_ids || []).map((id) => TMDB_GENRE_NAMES[id]).filter(Boolean).slice(0, 4),
+      // kept on the server only (tools.js strips them before the model sees the list): they let
+      // the app open the title's page directly instead of searching for it by name
+      tmdb_id: r.id || null,
+      tmdb_type: r.media_type || (r.title !== undefined ? "movie" : "tv"),
     }));
 }
 
@@ -155,7 +187,7 @@ const searchCache = new Map(); // "lang|title" -> { exp, results }
 /**
  * Is this a movie or TV series TMDB knows (i.e. something the app can open a detail page for)?
  * A hit needs the same title (title / original title, punctuation and case ignored) and, when a
- * year is given, a release year within one year. Returns {type, year} or null. Throws when TMDB
+ * year is given, a release year within one year. Returns {type, year, id} or null. Throws when TMDB
  * can't be reached (the caller then shows no link).
  */
 async function findTmdbTitle(title, { year = null, type = null, lang = "en" } = {}) {
@@ -176,7 +208,7 @@ async function findTmdbTitle(title, { year = null, type = null, lang = "en" } = 
     if (!names.includes(wanted)) continue;
     const y = parseInt(String(r.release_date || r.first_air_date || "").slice(0, 4), 10) || null;
     if (year && y && Math.abs(y - year) > 1) continue;
-    return { type: r.media_type, year: y };
+    return { type: r.media_type, year: y, id: r.id || null };
   }
   return null;
 }
@@ -352,6 +384,7 @@ async function getCatalogPicks(args = {}, { lang = "en", country = "" } = {}) {
     year: m.startyear || null,
     score: m.imdb_score ? Math.round(m.imdb_score * 10) / 10 : null,
     type: m.category === "series" ? "tv" : m.category === "animation" ? "animation" : "movie",
+    imdb_id: /^tt\d+$/.test(String(m.imdb_id || "")) ? m.imdb_id : null, // server only, see tools.js
     genres: (Array.isArray(m.genre) ? m.genre : []).slice(0, 4).map(clean),
     made_in: clean(m.countries),
     playable_in_app: true,

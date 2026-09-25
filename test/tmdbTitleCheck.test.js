@@ -7,7 +7,7 @@ const catalog = require("../src/catalog");
 // TMDB /search/multi answers, stubbed: nothing here touches the network
 const RESULTS = [
   { media_type: "person", name: "Severance" },
-  { media_type: "tv", name: "Severance", original_name: "Severance", first_air_date: "2022-02-17" },
+  { media_type: "tv", id: 95396, name: "Severance", original_name: "Severance", first_air_date: "2022-02-17" },
   { media_type: "movie", title: "무빙", original_title: "Moving", release_date: "2023-08-09" },
   { media_type: "movie", title: "Dune", original_title: "Dune", release_date: "1984-12-14" },
   { media_type: "movie", title: "Dune", original_title: "Dune", release_date: "2021-09-15" },
@@ -30,9 +30,9 @@ async function withStub(fn) {
 
 test("a movie / series TMDB knows is found, case, spacing and punctuation ignored", () =>
   withStub(async () => {
-    assert.deepStrictEqual(await catalog.findTmdbTitle("severance", { lang: "ko" }), { type: "tv", year: 2022 });
-    assert.deepStrictEqual(await catalog.findTmdbTitle("무 빙", { year: 2023, lang: "ko" }), { type: "movie", year: 2023 });
-    assert.deepStrictEqual(await catalog.findTmdbTitle("Moving!", { lang: "ko" }), { type: "movie", year: 2023 }); // original title
+    assert.deepStrictEqual(await catalog.findTmdbTitle("severance", { lang: "ko" }), { type: "tv", year: 2022, id: 95396 });
+    assert.deepStrictEqual(await catalog.findTmdbTitle("무 빙", { year: 2023, lang: "ko" }), { type: "movie", year: 2023, id: null });
+    assert.deepStrictEqual(await catalog.findTmdbTitle("Moving!", { lang: "ko" }), { type: "movie", year: 2023, id: null }); // original title
   }));
 
 test("year narrows down remakes, type is respected, people and unknown titles are not titles", () =>
