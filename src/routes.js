@@ -7,6 +7,7 @@ const { getPersona, promptFor, prewarmCard, languageNote } = require("./persona"
 const { trimToLastSentence } = require("./text");
 const deepseek = require("./deepseek");
 const lookupGuard = require("./lookupGuard");
+const productList = require("./productList");
 const { toolDefsFor, runTool } = require("./tools");
 const humor = require("./humor");
 const linkGuard = require("./linkGuard");
@@ -163,6 +164,38 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
 
     sending.add(convId);
     locked = true;
+
+    // "품번" (product code) request: a fixed template + the next titles of User's Pick, no model call.
+    // These two messages are flagged `template` and left out of what the model sees later.
+    if (productList.wantsProductList(text)) {
+      const out = await productList.buildReply(conv, String(req.body.lang || "en").toLowerCase());
+      const at = new Date();
+      const saved = await db.messages().insertMany([
+        { conversation_id: conv._id, role: "user", content: text, created_at: at, template: true },
+        { conversation_id: conv._id, role: "assistant", content: out.text, created_at: new Date(at.getTime() + 1), template: true, ...(out.links.length ? { links: out.links } : {}) },
+      ]);
+      await db.conversations().updateOne(
+        { _id: conv._id },
+        {
+          $set: {
+            last_message: out.text.slice(0, 200),
+            last_message_at: new Date(),
+            actor_names: persona.displayNames,
+            actor_avatar: persona.avatar,
+            // shown titles are remembered so the next request continues with new ones; when the list
+            // ran out and started over, the list starts over too
+            ...(out.reset ? { recommended_movies: out.ids } : {}),
+          },
+          $inc: { message_count: 2 },
+          ...(out.ids.length && !out.reset ? { $push: { recommended_movies: { $each: out.ids } } } : {}),
+        }
+      );
+      charged = false; // succeeded: the count stands
+      return res.json({
+        user_message: toMessage({ _id: saved.insertedIds[0], role: "user", content: text, created_at: at }),
+        reply: toMessage({ _id: saved.insertedIds[1], role: "assistant", content: out.text, created_at: at, links: out.links }),
+      });
+    }
     const recent = await db
       .messages()
       .find({ conversation_id: conv._id })
@@ -199,7 +232,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       { role: "system", content: await promptFor(persona) },
       { role: "system", content: languageNote(lang) + (humor.isEligible(lang) ? " " + humor.FUNNY_HINT : "") },
       ...(funnySystem ? [{ role: "system", content: funnySystem }] : []),
-      ...recent.map((m) => ({
+      ...recent.filter((m) => !m.template).map((m) => ({
         role: m.role,
         content: m.role === "assistant" ? titleLinks.applyMarkers(linkGuard.stripLinkBlock(m.content), m.links) : titleLinks.stripMarkers(m.content),
       })),

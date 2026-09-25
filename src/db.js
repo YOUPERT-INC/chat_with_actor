@@ -1,7 +1,7 @@
 const mongoose = require("mongoose");
 const config = require("./config");
 
-// Collections written by this service. actress_new is only ever read.
+// Collections written by this service. actress_new and movie are only ever read.
 const CONVERSATIONS = "actor_chat_conversations";
 const MESSAGES = "actor_chat_messages";
 const USAGE = "actor_chat_usage";
@@ -40,4 +40,5 @@ module.exports = {
   verifiedFacts: () => col(FACTS),
   humorPosts: () => col(HUMOR),
   actresses: () => col("actress_new"),
+  movies: () => col("movie"), // Flix1 titles (swipex_nodejs); only read, for the User's Pick list
 };
