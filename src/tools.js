@@ -1,7 +1,7 @@
 /**
  * Tools the avatar may call while chatting (OpenAI-style function calling, supported by
- * DeepSeek). Right now one: live popularity charts, so "what is popular now?" is answered
- * from real data (for the user's own country) instead of the model's older memory.
+ * DeepSeek). Recommendations: get_titles asks TMDB for a list by category, genre, country, year
+ * and rating parameters, so answers come from real data instead of the model's older memory.
  */
 const catalog = require("./catalog");
 const humor = require("./humor");
@@ -10,49 +10,36 @@ const TOOL_DEFS = [
   {
     type: "function",
     function: {
-      name: "get_popular_titles",
+      name: "get_titles",
       description:
-        "Look up live charts of anime, movies or TV series. By default (kind=popular) it returns what is popular " +
-        "RIGHT NOW in the user's own country (movies: recent releases there; TV: new and currently airing series, " +
-        "'items' worldwide and 'local_items' made in the user's country's language; anime: currently trending). " +
-        "Use it when the user asks what to watch, for recommendations, what is popular or trending, or for a ranking. " +
-        "Use kind=top_rated ONLY when the user explicitly asks for the best of all time. " +
-        "Pass 'genre' to get the popular titles of one genre, for example to answer as your character from the genres " +
-        "you love; several calls at once (one per genre or category) are fine. " +
+        "Live lists of movies, TV series or anime from TMDB. Every recommendation of a movie, series or anime MUST " +
+        "come from this tool, never from memory. Turn what the user asks for into parameters: " +
+        "kind=popular (default) is what people watch right now (recent releases); kind=trending is hot this week; " +
+        "kind=top_rated is the best rated of all time (use it when they ask for the best / highest rated / a classic). " +
+        "'genres' filters by genre (up to 2, all must match), 'year_from' / 'year_to' by release year (a decade, 'from the 90s'), " +
+        "'min_rating' by score (0-10), 'max_runtime' by length in minutes (movies), 'original_language' by spoken language (ISO 639-1). " +
+        "'scope' says where the titles come from: global = worldwide (no country filter); country = titles MADE in one " +
+        "country ('region', an ISO code; leave it empty for the user's own country). If the user does not name a country, " +
+        "call the tool twice at once, scope=global and scope=country, with the same other parameters. If the user names a country, " +
+        "make one call with scope=country and that region. Anime means Japanese animation series; anime films are " +
+        "category=movie, genres=[Animation], region=JP. Several calls at once are fine. " +
         "Do not use it for casual chat, or for a specific title you already know about.",
       parameters: {
         type: "object",
         properties: {
           category: { type: "string", enum: catalog.CATEGORIES },
-          kind: {
-            type: "string",
-            enum: catalog.KINDS,
-            description: "popular = popular now in the user's country (default); trending = hot this week worldwide; top_rated = best of all time",
-          },
-          genre: { type: "string", enum: catalog.GENRES, description: "optional: only this genre" },
+          kind: { type: "string", enum: catalog.KINDS, description: "popular (default) = watched now; trending = hot this week; top_rated = best of all time" },
+          scope: { type: "string", enum: catalog.SCOPES, description: "global = worldwide; country = made in `region` (default: the user's country)" },
+          region: { type: "string", description: "ISO country code for scope=country. ONLY when the user names a country (e.g. JP, KR, CN) or for your own country. NEVER guess the user's country from their language: leave it out and the server uses the user's real country" },
+          genres: { type: "array", items: { type: "string", enum: catalog.GENRES }, maxItems: 2, description: "optional: genres that all must match" },
+          year_from: { type: "integer", description: "optional: released in or after this year" },
+          year_to: { type: "integer", description: "optional: released in or before this year" },
+          min_rating: { type: "number", minimum: 0, maximum: 10, description: "optional: minimum TMDB score" },
+          max_runtime: { type: "integer", description: "optional: movies only, at most this many minutes" },
+          original_language: { type: "string", description: "optional: ISO 639-1 code of the original language (e.g. ko, ja, zh)" },
           count: { type: "integer", minimum: 1, maximum: 10, description: "how many titles (default 5)" },
-          region: { type: "string", description: "optional ISO country code, only if the user asks about another country (e.g. JP)" },
         },
         required: ["category"],
-      },
-    },
-  },
-  {
-    type: "function",
-    function: {
-      name: "get_catalog_picks",
-      description:
-        "Get random popular titles of the user's country from Flix1's own catalogue, all of which can be watched right " +
-        "in this app. The picks are different on every call, so use it together with get_popular_titles whenever you " +
-        "recommend movies or TV series, and mix a couple of them in: suggestions stay fresh instead of repeating " +
-        "the same titles, and the user can start watching immediately. Do not use it for casual chat.",
-      parameters: {
-        type: "object",
-        properties: {
-          category: { type: "string", enum: ["movie", "tv"], description: "optional: only movies or only tv series (the catalogue has no anime)" },
-          count: { type: "integer", minimum: 1, maximum: 10, description: "how many titles (default 5)" },
-          region: { type: "string", description: "optional ISO country code, only if the user asks about another country" },
-        },
       },
     },
   },
@@ -78,8 +65,7 @@ function toolDefsFor(context = {}) {
 
 const RUNNERS = {
   get_funny_post: (args, context) => humor.pickForContext(context),
-  get_popular_titles: (args, context) => catalog.getPopularTitles(args, context),
-  get_catalog_picks: (args, context) => catalog.getCatalogPicks(args, context),
+  get_titles: (args, context) => catalog.getTitles(args, context),
 };
 
 // Ids stay on the server (they go to the app as link data); the model only needs title, year, score.
@@ -92,7 +78,6 @@ function withoutIds(result) {
   if (!result || typeof result !== "object") return result;
   const out = { ...result };
   if (Array.isArray(result.items)) out.items = result.items.map(stripIds);
-  if (Array.isArray(result.local_items)) out.local_items = result.local_items.map(stripIds);
   return out;
 }
 
@@ -110,15 +95,15 @@ async function runTool(name, rawArgs, context = {}) {
     const run = RUNNERS[name];
     if (!run) return { error: "unknown tool" };
     const result = await run(args, context);
-    const n = (result.items || []).length + (result.local_items ? result.local_items.length : 0);
+    const n = (result.items || []).length;
     const shown = withoutIds(result);
     if (Array.isArray(context.knownTitles)) {
       const type = result.category === "movie" || result.category === "tv" ? result.category : null;
-      for (const item of [...(result.items || []), ...(result.local_items || [])]) {
+      for (const item of result.items || []) {
         if (item && item.title) context.knownTitles.push({ ...item, type: item.tmdb_type || item.type || type });
       }
     }
-    console.log(`[tool] ${name} ${JSON.stringify(args)} region=${result.region || "-"} -> ${n} items ${Date.now() - started}ms`);
+    console.log(`[tool] ${name} ${JSON.stringify(args)} scope=${result.scope || "-"} region=${result.region || "-"} -> ${n} items ${Date.now() - started}ms`);
     return shown;
   } catch (error) {
     console.log(`[tool] ${name} failed after ${Date.now() - started}ms: ${error.message}`);

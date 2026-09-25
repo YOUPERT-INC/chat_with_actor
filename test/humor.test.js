@@ -203,9 +203,9 @@ test("linkBlock: title and source on one line, the address alone on the next (so
 });
 
 test("the funny-post tool is offered to Korean-language users only, and only there is the hint added", () => {
-  assert.deepStrictEqual(tools.toolDefsFor({ lang: "en" }).map((t) => t.function.name), ["get_popular_titles", "get_catalog_picks"]);
-  assert.deepStrictEqual(tools.toolDefsFor({ lang: "ko" }).map((t) => t.function.name), ["get_popular_titles", "get_catalog_picks", "get_funny_post"]);
-  assert.deepStrictEqual(tools.toolDefsFor({ lang: "zh" }).length, 2);
+  assert.deepStrictEqual(tools.toolDefsFor({ lang: "en" }).map((t) => t.function.name), ["get_titles"]);
+  assert.deepStrictEqual(tools.toolDefsFor({ lang: "ko" }).map((t) => t.function.name), ["get_titles", "get_funny_post"]);
+  assert.deepStrictEqual(tools.toolDefsFor({ lang: "zh" }).length, 1);
   assert.ok(humor.isEligible("KO") && !humor.isEligible("ja") && !humor.isEligible(undefined));
   assert.match(humor.FUNNY_HINT, /Never call it unprompted/);
   assert.match(humor.FUNNY_HINT, /Never write a URL or a link line/);

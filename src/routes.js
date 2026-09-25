@@ -6,12 +6,12 @@ const { requireUser, membershipActive } = require("./auth");
 const { getPersona, promptFor, prewarmCard, languageNote } = require("./persona");
 const { trimToLastSentence } = require("./text");
 const deepseek = require("./deepseek");
+const lookupGuard = require("./lookupGuard");
 const { toolDefsFor, runTool } = require("./tools");
 const humor = require("./humor");
 const linkGuard = require("./linkGuard");
 const { avatarUrl } = require("./images");
 const titleLinks = require("./titleLinks");
-const catalog = require("./catalog");
 const verifiedFacts = require("./verifiedFacts");
 
 const router = express.Router();
@@ -209,7 +209,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       { role: "system", content: titleLinks.MARK_REMINDER },
       { role: "user", content: text },
     ];
-    let result = await deepseek.converse(messages, { tools: toolDefsFor(context), runTool, context });
+    let result = await lookupGuard.converseWithLookup(messages, { tools: toolDefsFor(context), runTool, context });
     // A draft that says it found / brought a post while the app has none for this message is a
     // made-up post: have it rewritten once, without tools, and without such claims.
     if (humor.isEligible(lang) && !context.picked.length && humor.claimsPost(result.text)) {
@@ -224,12 +224,8 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
     // ⟦Title⟧ markers become plain text plus positions (`links`); the link block below is appended after them
     const extracted = titleLinks.extractTitleLinks(trimmedText, context.knownTitles);
     let replyText = extracted.text;
-    // only movies / series TMDB really knows become links (not novels or other things she mentions,
-    // and never the books listed in her verified facts)
-    const replyLinks = await titleLinks.keepOpenable(extracted.links, {
-      exclude: titleLinks.bookTitles(factsText),
-      verify: (l) => catalog.findTmdbTitle(l.title, { year: l.year, type: l.type, lang: context.lang }),
-    });
+    // only titles the tools returned (they carry a TMDB id) become links
+    const replyLinks = titleLinks.keepOpenable(extracted.links);
     const spokenText = replyText; // what she says, without the link block (used for the list preview)
     const sharedPost = context.picked[0] || null; // one link per message
     if (sharedPost) replyText += humor.linkBlock(sharedPost);

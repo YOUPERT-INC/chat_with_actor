@@ -1,6 +1,7 @@
 // Title links: the model wraps every movie / TV / anime title it names in ⟦ ⟧. The server removes
 // the brackets and returns where each title sits in the final text (`links`), so the app can show
-// it as a tappable link. Nothing here is an address; the app looks the title up itself.
+// it as a tappable link. Nothing here is an address; only titles the tools returned (with their TMDB
+// id) become links, and the app opens the title's page by that id.
 
 const OPEN = "⟦";
 const CLOSE = "⟧";
@@ -8,6 +9,8 @@ const MARK_RE = /⟦([^⟦⟧\n]{1,80})⟧(?:\s?[(（](\d{4})[)）])?/g;
 const MAX_LINKS = 12;
 
 const clean = (s) => String(s || "").replace(/\s+/g, " ").trim();
+// case, spacing and punctuation ignored: "Spider-Man: Homecoming" and "spiderman homecoming" are one name
+const normName = (t) => String(t || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 
 /**
  * @param {string} text model text containing ⟦Title⟧ markers
@@ -18,7 +21,7 @@ function extractTitleLinks(text, known = []) {
   const byName = new Map();
   for (const k of known) {
     for (const name of [k.title, k.original_title]) {
-      if (name) byName.set(clean(name).toLowerCase(), k);
+      if (name) byName.set(normName(name), k);
     }
   }
 
@@ -36,9 +39,9 @@ function extractTitleLinks(text, known = []) {
     out += yearText;
     cursor = m.index + m[0].length;
 
-    const hit = byName.get(title.toLowerCase());
+    const hit = byName.get(normName(title));
     const year = m[2] ? parseInt(m[2], 10) : (hit && hit.year) || null;
-    // "animation" (Flix1 catalogue) says nothing about film vs series: leave the type open
+    // anything but "movie" / "tv" says nothing about film vs series: leave the type open
     const rawType = hit && (hit.tmdb_type || hit.type);
     const type = rawType === "movie" || rawType === "tv" ? rawType : null;
     const link = { start, end, title, year, type };
@@ -53,45 +56,13 @@ function extractTitleLinks(text, known = []) {
   return { text: out, links };
 }
 
-const normName = (t) => String(t || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
-
-/** Titles of the books listed in a verified-facts text ("1. 「최저。」 (最低。, ..."): both names. */
-function bookTitles(facts) {
-  const names = new Set();
-  for (const m of String(facts || "").matchAll(/^\s*\d+\.\s*「([^」]+)」\s*\(([^,)"]+)/gm)) {
-    names.add(normName(m[1]));
-    names.add(normName(m[2]));
-  }
-  names.delete("");
-  return names;
-}
-
 /**
- * Keeps only the links the app can really open: a title in `exclude` (books and the like) never
- * gets one, and `verify` (TMDB) must know it as a movie or series. A failed check drops the link:
- * no link is better than a wrong page. Text and offsets are untouched.
+ * Keeps only the links the app can really open: a title the tools returned this turn, which comes
+ * with the id of its TMDB page. A title the model wrote from memory has no id and gets no link (no
+ * title search: no link is better than a wrong page). Text and offsets are untouched.
  */
-async function keepOpenable(links, { exclude = new Set(), verify }) {
-  const kept = [];
-  await Promise.all(
-    links.map(async (link, i) => {
-      if (exclude.has(normName(link.title))) return;
-      if (link.tmdb_id || link.imdb_id) {
-        kept[i] = link; // came from a chart / the catalogue with an id: nothing to look up
-        return;
-      }
-      try {
-        const hit = await verify(link);
-        if (hit) {
-          kept[i] = { ...link, type: hit.type || link.type, year: link.year || hit.year || null };
-          if (hit.id) kept[i].tmdb_id = hit.id;
-        }
-      } catch (error) {
-        console.log(`[title-links] check failed for "${link.title}": ${error.message}`);
-      }
-    })
-  );
-  return kept.filter(Boolean);
+function keepOpenable(links) {
+  return links.filter((link) => link.tmdb_id || link.imdb_id);
 }
 
 /** Put the markers back into a stored reply so the model keeps seeing (and using) the format. */
@@ -112,6 +83,9 @@ function applyMarkers(content, links) {
 const MARK_REMINDER =
   "Format reminder: wrap the name of every movie, TV series or anime you mention in ⟦ ⟧ followed by its year in normal brackets, as in ⟦Parasite⟧ (2019), even if your earlier replies in this chat did not. Never for books, games, music or people.";
 
+/** Does the text name titles (⟦ ⟧ markers)? */
+const namesTitles = (text) => new RegExp(MARK_RE.source).test(String(text || ""));
+
 const stripMarkers =(text) => String(text).split(OPEN).join("").split(CLOSE).join("");
 
-module.exports = { extractTitleLinks, keepOpenable, bookTitles, applyMarkers, stripMarkers, MARK_REMINDER, OPEN, CLOSE };
+module.exports = { extractTitleLinks, keepOpenable, applyMarkers, stripMarkers, namesTitles, MARK_REMINDER, OPEN, CLOSE };

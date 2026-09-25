@@ -81,18 +81,24 @@ test("prompt keeps the safety rules and adds the proactive / minor rules", () =>
   }
 });
 
-test("prompt tells the avatar to use the country-aware tool and to answer 'what did you enjoy' by genre", () => {
+test("prompt sends every movie / series / anime recommendation through get_titles, never from memory", () => {
   const p = buildSystemPrompt({ names: { en: "A" }, spec: {}, koDescription: "한국어" });
-  assert.ok(p.includes("it knows the user's country"));
-  assert.ok(p.includes("top_rated only when they explicitly want the best of all time"));
-  assert.ok(p.includes("the two or three genres you love most"));
+  assert.ok(p.includes("ALWAYS come from the get_titles tool (never from memory)"));
+  assert.ok(p.includes("Never add a movie, TV series or anime from memory"));
   assert.ok(p.includes("Never mention tools"));
+  assert.ok(!p.includes("get_catalog_picks") && !p.includes("get_popular_titles"));
 });
 
-test("prompt asks for catalogue picks together with the charts on every recommendation", () => {
+test("prompt asks for a worldwide part and a user-country part unless the user names a country", () => {
   const p = buildSystemPrompt({ names: { en: "A" }, spec: {}, koDescription: "한국어" });
-  assert.ok(p.includes("also call get_catalog_picks together with get_popular_titles"));
-  assert.ok(p.includes("can be watched right here in the app"));
+  assert.ok(p.includes("does not name a country, call get_titles twice at once (scope global, and scope country WITHOUT a region"));
+  assert.ok(p.includes("names a country, make one call for that country only"));
+});
+
+test("prompt answers 'what did you enjoy' with a worldwide and an own-country part, by genre", () => {
+  const p = buildSystemPrompt({ names: { en: "A" }, spec: {}, koDescription: "한국어" });
+  assert.ok(p.includes("worldwide (scope global) and from your own country"));
+  assert.ok(p.includes("the genres you love most"));
 });
 
 test("verified facts appear only when given, and relax only the career rule", () => {

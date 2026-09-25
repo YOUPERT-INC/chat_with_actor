@@ -26,7 +26,7 @@ test("converse: tool call -> the result goes back to the model -> final answer",
   const call = async (msgs) => {
     calls.push(JSON.parse(JSON.stringify(msgs)));
     if (calls.length === 1) {
-      return { text: "", toolCalls: [toolCall("c1", "get_popular_titles", { category: "anime" })], message: { content: null }, finishReason: "tool_calls" };
+      return { text: "", toolCalls: [toolCall("c1", "get_titles", { category: "anime" })], message: { content: null }, finishReason: "tool_calls" };
     }
     return { text: "요즘은 프리렌이 인기야!", toolCalls: [], message: {}, finishReason: "stop" };
   };
@@ -37,8 +37,8 @@ test("converse: tool call -> the result goes back to the model -> final answer",
   };
   const r = await deepseek.converse([{ role: "user", content: "인기 애니?" }], { tools: tools.TOOL_DEFS, runTool, context: { lang: "ko" }, call });
   assert.strictEqual(r.text, "요즘은 프리렌이 인기야!");
-  assert.deepStrictEqual(r.toolsUsed, ["get_popular_titles"]);
-  assert.deepStrictEqual(runs[0], { name: "get_popular_titles", args: '{"category":"anime"}', ctx: { lang: "ko" } });
+  assert.deepStrictEqual(r.toolsUsed, ["get_titles"]);
+  assert.deepStrictEqual(runs[0], { name: "get_titles", args: '{"category":"anime"}', ctx: { lang: "ko" } });
   const second = calls[1];
   assert.strictEqual(second[second.length - 2].role, "assistant");
   assert.strictEqual(second[second.length - 2].tool_calls[0].id, "c1");
@@ -50,7 +50,7 @@ test("converse: the last round is made without tools, so an answer is always pro
   const call = async (msgs, opts) => {
     offered.push(Boolean(opts.tools));
     return offered.length <= 2
-      ? { text: "", toolCalls: [toolCall("c" + offered.length, "get_popular_titles", { category: "tv" })], message: {}, finishReason: "tool_calls" }
+      ? { text: "", toolCalls: [toolCall("c" + offered.length, "get_titles", { category: "tv" })], message: {}, finishReason: "tool_calls" }
       : { text: "final", toolCalls: [], message: {}, finishReason: "stop" };
   };
   const r = await deepseek.converse([{ role: "user", content: "x" }], { tools: tools.TOOL_DEFS, runTool: async () => ({}), maxRounds: 2, call });
@@ -60,7 +60,7 @@ test("converse: the last round is made without tools, so an answer is always pro
 });
 
 test("converse: a model that still asks for tools in the tool-less call is an error, not a loop", async () => {
-  const call = async () => ({ text: "", toolCalls: [toolCall("c", "get_popular_titles", {})], message: {}, finishReason: "tool_calls" });
+  const call = async () => ({ text: "", toolCalls: [toolCall("c", "get_titles", {})], message: {}, finishReason: "tool_calls" });
   await assert.rejects(
     deepseek.converse([{ role: "user", content: "x" }], { tools: tools.TOOL_DEFS, runTool: async () => ({}), call }),
     /kept asking/
@@ -68,21 +68,21 @@ test("converse: a model that still asks for tools in the tool-less call is an er
 });
 
 test("runTool never throws: bad JSON, unknown tool and source failures become 'unavailable'", async () => {
-  const realGet = catalog.getPopularTitles;
+  const realGet = catalog.getTitles;
   try {
-    assert.strictEqual((await tools.runTool("get_popular_titles", "{not json")).error, "unavailable");
+    assert.strictEqual((await tools.runTool("get_titles", "{not json")).error, "unavailable");
     assert.strictEqual((await tools.runTool("delete_everything", "{}")).error, "unknown tool");
-    catalog.getPopularTitles = async () => {
+    catalog.getTitles = async () => {
       throw new Error("boom");
     };
-    const failed = await tools.runTool("get_popular_titles", '{"category":"anime"}');
+    const failed = await tools.runTool("get_titles", '{"category":"anime"}');
     assert.strictEqual(failed.error, "unavailable");
     assert.match(failed.note, /answer from what you know/);
-    catalog.getPopularTitles = async (args, ctx) => ({ items: [args, ctx] });
-    const ok = await tools.runTool("get_popular_titles", '{"category":"movie"}', { lang: "th" });
+    catalog.getTitles = async (args, ctx) => ({ items: [args, ctx] });
+    const ok = await tools.runTool("get_titles", '{"category":"movie"}', { lang: "th" });
     assert.deepStrictEqual(ok.items, [{ category: "movie" }, { lang: "th" }]);
   } finally {
-    catalog.getPopularTitles = realGet;
+    catalog.getTitles = realGet;
   }
 });
 
@@ -93,7 +93,7 @@ test("chat(): sends tools with tool_choice auto, parses tool_calls, still reject
     let body;
     axios.post = async (url, b) => {
       body = b;
-      return { data: { choices: [{ finish_reason: "tool_calls", message: { content: "", tool_calls: [toolCall("z", "get_popular_titles", { category: "movie" })] } }] } };
+      return { data: { choices: [{ finish_reason: "tool_calls", message: { content: "", tool_calls: [toolCall("z", "get_titles", { category: "movie" })] } }] } };
     };
     const r = await deepseek.chat([{ role: "user", content: "x" }], { tools: tools.TOOL_DEFS });
     assert.strictEqual(body.tool_choice, "auto");
@@ -118,7 +118,7 @@ test("chat(): sends tools with tool_choice auto, parses tool_calls, still reject
 });
 
 test("converse: only the first few parallel tool calls run, but every tool_call still gets an answer", async () => {
-  const six = [1, 2, 3, 4, 5, 6].map((i) => toolCall("c" + i, "get_popular_titles", { category: "movie", genre: "Drama", count: i }));
+  const six = [1, 2, 3, 4, 5, 6].map((i) => toolCall("c" + i, "get_titles", { category: "movie", genre: "Drama", count: i }));
   const seen = [];
   const call = async (msgs) => {
     seen.push(msgs);
@@ -133,28 +133,26 @@ test("converse: only the first few parallel tool calls run, but every tool_call 
   assert.strictEqual(JSON.parse(toolMsgs[5].content).error, "skipped");
 });
 
-test("tool definition: default kind is popular, genre and region are offered, top_rated is described as explicit-only", () => {
+test("tool definition: TMDB parameters (kind, scope, region, genres, years, rating) and the two-call rule for no country", () => {
   const def = tools.TOOL_DEFS[0].function;
-  assert.deepStrictEqual(def.parameters.properties.kind.enum, ["popular", "trending", "top_rated"]);
-  assert.ok(def.parameters.properties.genre.enum.includes("Romance") && def.parameters.properties.genre.enum.includes("Slice of Life"));
-  assert.ok(def.parameters.properties.region);
-  assert.match(def.description, /ONLY when the user explicitly asks for the best of all time/);
-  assert.match(def.description, /user's own country/);
+  const props = def.parameters.properties;
+  assert.deepStrictEqual(props.kind.enum, ["popular", "trending", "top_rated"]);
+  assert.deepStrictEqual(props.scope.enum, ["global", "country"]);
+  assert.ok(props.genres.items.enum.includes("Romance") && props.genres.items.enum.includes("Horror"));
+  for (const k of ["region", "year_from", "year_to", "min_rating", "max_runtime", "original_language"]) assert.ok(props[k], k);
+  assert.match(def.description, /MUST come from this tool/);
+  assert.match(def.description, /call the tool twice at once, scope=global and scope=country/);
 });
 
-test("both tools are offered and routed by runTool", async () => {
-  assert.deepStrictEqual(tools.TOOL_DEFS.map((t) => t.function.name), ["get_popular_titles", "get_catalog_picks"]);
-  const real = { p: catalog.getPopularTitles, c: catalog.getCatalogPicks };
+test("the recommendation tool is offered and routed by runTool", async () => {
+  assert.deepStrictEqual(tools.TOOL_DEFS.map((t) => t.function.name), ["get_titles"]);
+  const real = catalog.getTitles;
   try {
-    catalog.getPopularTitles = async () => ({ items: ["chart"] });
-    catalog.getCatalogPicks = async (args, ctx) => ({ items: ["catalogue", args, ctx] });
-    assert.deepStrictEqual((await tools.runTool("get_popular_titles", "{}")).items, ["chart"]);
-    const picks = await tools.runTool("get_catalog_picks", '{"category":"tv"}', { lang: "ko", country: "KR" });
-    assert.deepStrictEqual(picks.items, ["catalogue", { category: "tv" }, { lang: "ko", country: "KR" }]);
-    assert.match(tools.TOOL_DEFS[1].function.description, /different on every call/);
-    assert.match(tools.TOOL_DEFS[1].function.description, /right in this app/);
+    catalog.getTitles = async (args, ctx) => ({ items: ["list", args, ctx] });
+    const r = await tools.runTool("get_titles", '{"category":"tv"}', { lang: "ko", country: "KR" });
+    assert.deepStrictEqual(r.items, ["list", { category: "tv" }, { lang: "ko", country: "KR" }]);
+    assert.strictEqual((await tools.runTool("get_catalog_picks", "{}")).error, "unknown tool");
   } finally {
-    catalog.getPopularTitles = real.p;
-    catalog.getCatalogPicks = real.c;
+    catalog.getTitles = real;
   }
 });
