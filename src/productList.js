@@ -109,83 +109,85 @@ const wantsProductList = (text) => detectList(text) !== null;
 
 // ---- template texts ------------------------------------------------------------------------
 
-// {list} = the name of the list in that language (LABELS)
+// Friendly, casual register (the avatar talks like a close friend / partner). `intro` is for the
+// plain list; `introCategory` names the category ({list}, see LABELS). `reset` is put before the
+// intro when the list started over.
 const TEXT = {
   ko: {
-    intro: "{list} 작품 중 추천 수가 많은 순서로 골라 봤어요. 품번을 누르면 상세 페이지가 열려요.",
-    outro: "다른 작품도 보고 싶으면 같은 요청을 다시 보내 주세요.",
-    reset: "준비된 작품을 모두 추천해 드려서, 처음부터 다시 추천해요.",
-    none: "지금은 추천할 작품을 찾지 못했어요. 잠시 후 다시 시도해 주세요.",
+    intro: "유저들 추천 수가 많은 순서로 골라 봤어. 또 궁금한 게 있으면 물어 봐.",
+    introCategory: "{list} 작품 중 유저들 추천 수가 많은 순서로 골라 봤어. 또 궁금한 게 있으면 물어 봐.",
+    reset: "다 보여 줬으니까 처음부터 다시 골라 봤어.",
+    none: "지금은 추천할 작품을 못 찾았어. 잠시 뒤에 다시 물어 봐.",
   },
   ja: {
-    intro: "{list}の作品から、おすすめ数が多い順に選びました。品番をタップすると詳細ページが開きます。",
-    outro: "他の作品も見たいときは、同じ内容をもう一度送ってください。",
-    reset: "用意した作品をすべてご紹介したので、最初からご紹介します。",
-    none: "今はおすすめできる作品が見つかりませんでした。しばらくしてからもう一度お試しください。",
+    intro: "ユーザーのおすすめ数が多い順に選んでみたよ。他にも気になることがあったら聞いてね。",
+    introCategory: "{list}の作品から、ユーザーのおすすめ数が多い順に選んでみたよ。他にも気になることがあったら聞いてね。",
+    reset: "全部紹介したから、最初からまた選んでみたよ。",
+    none: "今は紹介できる作品が見つからなかったよ。少ししてからまた聞いてね。",
   },
   zh: {
-    intro: "按推荐数从高到低，为你挑选了 {list} 作品。点击番号即可打开详情页。",
-    outro: "想看更多作品，请再发送一次同样的请求。",
-    reset: "已推荐完全部作品，现在从头开始推荐。",
-    none: "暂时没有找到可推荐的作品，请稍后再试。",
+    intro: "按用户推荐数从高到低帮你挑好了。还有想知道的就问我吧。",
+    introCategory: "从{list}作品里，按用户推荐数从高到低帮你挑好了。还有想知道的就问我吧。",
+    reset: "都推荐完了，我从头再挑一遍。",
+    none: "现在没找到能推荐的作品，过一会儿再问我吧。",
   },
   "zh-tw": {
-    intro: "依推薦數由高到低，為你挑選了 {list} 作品。點擊番號即可開啟詳情頁。",
-    outro: "想看更多作品，請再傳送一次同樣的請求。",
-    reset: "已推薦完全部作品，現在從頭開始推薦。",
-    none: "暫時沒有找到可推薦的作品，請稍後再試。",
+    intro: "依用戶推薦數由高到低幫你挑好了。還有想知道的就問我吧。",
+    introCategory: "從{list}作品裡，依用戶推薦數由高到低幫你挑好了。還有想知道的就問我吧。",
+    reset: "都推薦完了，我從頭再挑一遍。",
+    none: "現在沒找到能推薦的作品，等一下再問我吧。",
   },
   en: {
-    intro: "Here are {list} picks, most recommended first. Tap a product code to open its detail page.",
-    outro: "Send the same request again for more.",
-    reset: "You have seen every pick, so I'm starting over from the top.",
-    none: "I couldn't find any picks right now. Please try again later.",
+    intro: "Picked these by most user recommendations. Ask me if you're curious about anything else!",
+    introCategory: "Picked these {list} titles by most user recommendations. Ask me if you're curious about anything else!",
+    reset: "I've shown you all of them, so I started over from the top.",
+    none: "Couldn't find anything to recommend right now. Ask me again in a bit!",
   },
   id: {
-    intro: "Ini pilihan {list}, diurutkan dari yang paling banyak direkomendasikan. Ketuk kode produk untuk membuka halaman detail.",
-    outro: "Kirim permintaan yang sama lagi untuk melihat yang lain.",
-    reset: "Semua pilihan sudah ditampilkan, jadi saya mulai lagi dari awal.",
-    none: "Belum ada pilihan yang bisa direkomendasikan. Coba lagi nanti.",
+    intro: "Aku pilihin yang paling banyak direkomendasikan pengguna. Kalau ada yang mau ditanyain lagi, tanya aja ya.",
+    introCategory: "Aku pilihin {list} yang paling banyak direkomendasikan pengguna. Kalau ada yang mau ditanyain lagi, tanya aja ya.",
+    reset: "Semuanya udah kutunjukin, jadi aku mulai lagi dari awal.",
+    none: "Lagi nggak nemu yang bisa direkomendasiin. Coba tanya lagi nanti ya.",
   },
   ms: {
-    intro: "Berikut pilihan {list}, disusun mengikut paling banyak disyorkan. Ketik kod produk untuk membuka halaman butiran.",
-    outro: "Hantar permintaan yang sama lagi untuk lihat yang lain.",
-    reset: "Semua pilihan telah dipaparkan, jadi saya mulakan semula dari awal.",
-    none: "Tiada pilihan yang boleh disyorkan buat masa ini. Sila cuba lagi nanti.",
+    intro: "Aku pilihkan yang paling banyak disyorkan pengguna. Kalau nak tanya apa-apa lagi, tanya je.",
+    introCategory: "Aku pilihkan {list} yang paling banyak disyorkan pengguna. Kalau nak tanya apa-apa lagi, tanya je.",
+    reset: "Semua dah aku tunjuk, jadi aku mula semula dari awal.",
+    none: "Tak jumpa yang boleh disyorkan sekarang. Tanya lagi nanti ya.",
   },
   ru: {
-    intro: "Вот подборка «{list}», от самых рекомендуемых. Нажмите на артикул, чтобы открыть страницу с подробностями.",
-    outro: "Отправьте тот же запрос ещё раз, чтобы увидеть другие.",
-    reset: "Все подборки показаны, начинаю сначала.",
-    none: "Сейчас нет подходящих работ. Попробуйте позже.",
+    intro: "Вот подборка по числу рекомендаций от пользователей. Если что-то ещё интересно — спрашивай!",
+    introCategory: "Вот подборка «{list}» по числу рекомендаций от пользователей. Если что-то ещё интересно — спрашивай!",
+    reset: "Всё уже показали, так что начинаем сначала.",
+    none: "Пока ничего подходящего не нашлось. Спроси ещё раз чуть позже!",
   },
   th: {
-    intro: "นี่คือรายการ {list} เรียงตามจำนวนการแนะนำมากที่สุด แตะรหัสสินค้าเพื่อเปิดหน้ารายละเอียด",
-    outro: "ส่งคำขอเดิมอีกครั้งเพื่อดูเรื่องอื่น",
-    reset: "แนะนำครบทุกเรื่องแล้ว จึงเริ่มใหม่จากต้น",
-    none: "ตอนนี้ยังไม่พบเรื่องที่แนะนำได้ กรุณาลองใหม่ภายหลัง",
+    intro: "เลือกมาให้ตามจำนวนคนแนะนำเยอะสุดนะ อยากรู้อะไรอีกก็ถามได้เลย",
+    introCategory: "เลือก {list} มาให้ตามจำนวนคนแนะนำเยอะสุดนะ อยากรู้อะไรอีกก็ถามได้เลย",
+    reset: "แนะนำครบหมดแล้ว เลยเริ่มใหม่จากต้นนะ",
+    none: "ตอนนี้ยังหาเรื่องที่แนะนำไม่เจอ ไว้ถามใหม่อีกทีนะ",
   },
   vi: {
-    intro: "Đây là các phim {list}, xếp theo số lượt đề xuất nhiều nhất. Chạm vào mã sản phẩm để mở trang chi tiết.",
-    outro: "Hãy gửi lại yêu cầu tương tự để xem thêm.",
-    reset: "Đã giới thiệu hết các phim, mình bắt đầu lại từ đầu.",
-    none: "Hiện chưa tìm thấy phim nào để đề xuất. Vui lòng thử lại sau.",
+    intro: "Mình chọn theo số lượt người dùng đề xuất nhiều nhất nè. Muốn biết gì nữa thì cứ hỏi nhé!",
+    introCategory: "Mình chọn phim {list} theo số lượt người dùng đề xuất nhiều nhất nè. Muốn biết gì nữa thì cứ hỏi nhé!",
+    reset: "Mình giới thiệu hết rồi, nên bắt đầu lại từ đầu nè.",
+    none: "Giờ chưa tìm được phim nào để đề xuất. Lát nữa hỏi lại nhé!",
   },
 };
 TEXT.tw = TEXT["zh-tw"];
 
-// the name of each list, per app language
+// the name of each category, per app language (the plain list needs none)
 const LABELS = {
-  ko: { all: "User's Pick", uncensored: "노모(무수정)", fc2: "FC2", leaked: "모자이크 제거(유출)" },
-  ja: { all: "ユーザーズピック", uncensored: "無修正", fc2: "FC2", leaked: "モザイク除去" },
-  zh: { all: "User's Pick", uncensored: "无码", fc2: "FC2", leaked: "去码" },
-  "zh-tw": { all: "User's Pick", uncensored: "無碼", fc2: "FC2", leaked: "去碼" },
-  en: { all: "User's Pick", uncensored: "Uncensored", fc2: "FC2", leaked: "Mosaic Removed" },
-  id: { all: "User's Pick", uncensored: "Tanpa Sensor", fc2: "FC2", leaked: "Hapus Sensor" },
-  ms: { all: "User's Pick", uncensored: "Tanpa Sensor", fc2: "FC2", leaked: "Buang Sensor" },
-  ru: { all: "User's Pick", uncensored: "Без цензуры", fc2: "FC2", leaked: "Цензура удалена" },
-  th: { all: "User's Pick", uncensored: "ไร้เซ็นเซอร์", fc2: "FC2", leaked: "ลบเซ็นเซอร์" },
-  vi: { all: "User's Pick", uncensored: "Không Che", fc2: "FC2", leaked: "Xóa Che" },
+  ko: { uncensored: "노모(무수정)", fc2: "FC2", leaked: "모자이크 제거(유출)" },
+  ja: { uncensored: "無修正", fc2: "FC2", leaked: "モザイク除去" },
+  zh: { uncensored: "无码", fc2: "FC2", leaked: "去码" },
+  "zh-tw": { uncensored: "無碼", fc2: "FC2", leaked: "去碼" },
+  en: { uncensored: "Uncensored", fc2: "FC2", leaked: "Mosaic Removed" },
+  id: { uncensored: "Tanpa Sensor", fc2: "FC2", leaked: "Hapus Sensor" },
+  ms: { uncensored: "Tanpa Sensor", fc2: "FC2", leaked: "Buang Sensor" },
+  ru: { uncensored: "Без цензуры", fc2: "FC2", leaked: "Цензура удалена" },
+  th: { uncensored: "ไร้เซ็นเซอร์", fc2: "FC2", leaked: "ลบเซ็นเซอร์" },
+  vi: { uncensored: "Không Che", fc2: "FC2", leaked: "Xóa Che" },
 };
 LABELS.tw = LABELS["zh-tw"];
 
@@ -298,16 +300,19 @@ async function buildReply(conv, lang, list = "all") {
   if (!rows.length) return { text: t.none, links: [], cursor: null, reset: false };
 
   const namesOf = await actressNames(rows, lang);
-  let text = (reset ? `${t.reset}\n` : "") + `${t.intro.replace("{list}", labelFor(lang, list))}\n`;
+  const intro = list === "all" ? t.intro : t.introCategory.replace("{list}", labelFor(lang, list));
+  let text = (reset ? `${t.reset}\n` : "") + intro;
   const links = [];
-  rows.forEach((m, i) => {
-    text += `\n${i + 1}. `;
+  rows.forEach((m) => {
+    text += "\n";
     const start = text.length;
     text += m.title;
+    const end = text.length;
     const year = parseInt(String(m.share_date || "").slice(0, 4), 10);
+    if (year > 1900) text += ` (${year})`;
     links.push({
       start,
-      end: text.length,
+      end,
       title: m.title,
       movie_id: String(m._id),
       type: "av",
@@ -319,7 +324,6 @@ async function buildReply(conv, lang, list = "all") {
     const names = namesOf(m);
     if (names) text += ` - ${names}`;
   });
-  text += `\n\n${t.outro}`;
   return { text, links, cursor: cursorOf(rows[rows.length - 1]), reset };
 }
 

@@ -104,8 +104,19 @@ test("five titles, most favourited first; each code links to its movie id with i
     assert.match(l.thumbnail, /thumbs/);
     assert.match(l.cover, /covers/);
   }
-  assert.ok(out.text.includes("ABC-100 - 한국이름"));
-  assert.ok(out.text.startsWith("User's Pick 작품 중"));
+  // the requested layout: one friendly line, then "code (year) - actress" per title; no numbers, no tap hint
+  assert.strictEqual(
+    out.text,
+    [
+      "유저들 추천 수가 많은 순서로 골라 봤어. 또 궁금한 게 있으면 물어 봐.",
+      "ABC-100 (2024) - 한국이름",
+      "ABC-101 (2024) - 한국이름",
+      "ABC-102 (2024) - 한국이름",
+      "ABC-103 (2024) - 한국이름",
+      "ABC-104 (2024) - 한국이름",
+    ].join("\n")
+  );
+  assert.ok(!out.text.includes("User's Pick"));
   assert.deepStrictEqual(out.cursor, { fav: 996, id: "id004" });
   assert.strictEqual(out.reset, false);
   // every active title with a favourite_count (not only a featured set), most favourited first
@@ -125,11 +136,11 @@ test("a category list: only that category, the issue's condition (favorite_count
   assert.strictEqual(q[0].filter.category_id, "5f7592975c425008d254a789");
   assert.strictEqual(q[0].filter.is_active, 1);
   assert.deepStrictEqual(q[0].sort, { favorite_count: -1, _id: -1 });
-  assert.ok(out.text.startsWith("Here are Uncensored picks"));
+  assert.ok(out.text.startsWith("Picked these Uncensored titles by most user recommendations."));
 
   const fc2 = await productList.buildReply({}, "ko", "fc2");
   assert.ok(fc2.links.every((l) => l.title.startsWith("FC2-PPV-")));
-  assert.ok(fc2.text.startsWith("FC2 작품 중"));
+  assert.ok(fc2.text.startsWith("FC2 작품 중 유저들 추천 수가 많은 순서로 골라 봤어."));
   const leakedQuery = q.length;
   await productList.buildReply({}, "ja", "leaked");
   assert.strictEqual(q[leakedQuery].filter.category_id, "638ba0b6e6248f567f04b84c");
@@ -199,9 +210,10 @@ test("the actress name follows the app language and falls back to the name store
 
 test("every app language has the template texts and a name for each list", () => {
   for (const lang of ["en", "ko", "ja", "zh", "zh-tw", "id", "ms", "ru", "th", "vi"]) {
-    for (const key of ["intro", "outro", "reset", "none"]) assert.ok(productList.TEXT[lang][key], `${lang}.${key}`);
-    assert.ok(productList.TEXT[lang].intro.includes("{list}"), `${lang} intro names the list`);
-    for (const list of ["all", "uncensored", "fc2", "leaked"]) assert.ok(productList.LABELS[lang][list], `${lang}.${list}`);
+    for (const key of ["intro", "introCategory", "reset", "none"]) assert.ok(productList.TEXT[lang][key], `${lang}.${key}`);
+    assert.ok(!productList.TEXT[lang].intro.includes("{list}"), `${lang} plain intro names no category`);
+    assert.ok(productList.TEXT[lang].introCategory.includes("{list}"), `${lang} category intro names the category`);
+    for (const list of ["uncensored", "fc2", "leaked"]) assert.ok(productList.LABELS[lang][list], `${lang}.${list}`);
   }
 });
 
@@ -210,5 +222,15 @@ test("a placeholder instead of an actress name is not shown", async () => {
   fakeCollections(list, { actresses: [{ person_id: "p9", name: "Unknown", also_known_as: { en: "Unknown" } }] });
   const out = await productList.buildReply({}, "en", "all");
   assert.ok(!out.text.includes("Unknown"));
-  assert.ok(out.text.includes("ABC-100 - 日本名"));
+  assert.ok(out.text.includes("ABC-100 (2024) - 日本名"));
+});
+
+test("a title without a release date shows no empty brackets; the code stays the link", async () => {
+  fakeCollections(movies(1).map((m) => ({ ...m, share_date: undefined })));
+  const out = await productList.buildReply({}, "ko", "all");
+  const [line] = out.text.split("\n").slice(1);
+  assert.ok(line.startsWith("ABC-100 - "), line);
+  assert.ok(!line.includes("()"));
+  assert.strictEqual(out.text.slice(out.links[0].start, out.links[0].end), "ABC-100");
+  assert.strictEqual(out.links[0].year, undefined);
 });
