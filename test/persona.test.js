@@ -137,3 +137,14 @@ test("promptFor: includes facts, survives a failing facts read, never caches tha
     factsMod.getFacts = origFacts;
   }
 });
+
+test("verified-facts reminder: only for turns that ask about the facts", () => {
+  const { mentionsFacts } = require("../src/verifiedFacts");
+  const facts = '1. 「최저。」 (最低。, "Saitei.") - debut\n2. 「요철」 (凹凸, "Outotsu") - novel';
+  for (const yes of ["최저는 어떤 내용의 소설이야?", "요철 줄거리 알려줘", "너 책 썼다며?", "What is your novel about?", "凹凸って何？"]) {
+    assert.ok(mentionsFacts(yes, facts), yes);
+  }
+  for (const no of ["영화 추천해 줘", "드라마도 하나 더 추천해 줘", "오늘 뭐 했어?", "애니 추천"]) {
+    assert.ok(!mentionsFacts(no, facts), no);
+  }
+});

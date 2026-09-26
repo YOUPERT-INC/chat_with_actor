@@ -63,9 +63,49 @@ function toolDefsFor(context = {}) {
   return humor.isEligible(context.lang) ? [...TOOL_DEFS, FUNNY_TOOL] : TOOL_DEFS;
 }
 
+const PAGE_SIZE = 20; // one TMDB page
+const MAX_PAGES = 3;
+const titleKey = (item) => `${item.tmdb_type || "movie"}:${item.tmdb_id}`;
+
+/**
+ * get_titles without repeats: titles already recommended in this conversation
+ * (`context.recommended`, keys "movie:123") and titles another call of the same turn already
+ * returned are skipped, and later TMDB pages are read until enough new ones are found. The pages
+ * are cached and shared by all users; only this skipping is per conversation.
+ */
+async function getFreshTitles(args, context) {
+  const want = Math.min(Math.max(parseInt(args && args.count, 10) || 5, 1), 10);
+  const seen = context.recommended instanceof Set ? context.recommended : new Set();
+  const thisTurn = context.shownThisTurn || (context.shownThisTurn = new Set());
+
+  let first = null;
+  let skipped = 0;
+  const items = [];
+  for (let page = 1; page <= MAX_PAGES && items.length < want; page++) {
+    const r = await catalog.getTitles({ ...args, count: PAGE_SIZE, page }, context);
+    first = first || r;
+    for (const item of r.items || []) {
+      if (items.length >= want) break;
+      const key = item && item.tmdb_id ? titleKey(item) : null;
+      if (key && (seen.has(key) || thisTurn.has(key))) {
+        skipped++;
+        continue;
+      }
+      if (key) thisTurn.add(key);
+      items.push(item);
+    }
+    if ((r.items || []).length < PAGE_SIZE) break; // that was the last page
+  }
+  return {
+    ...first,
+    items,
+    ...(skipped ? { note: "Titles already recommended in this chat were left out; these are all new." } : {}),
+  };
+}
+
 const RUNNERS = {
   get_funny_post: (args, context) => humor.pickForContext(context),
-  get_titles: (args, context) => catalog.getTitles(args, context),
+  get_titles: (args, context) => getFreshTitles(args, context),
 };
 
 // Ids stay on the server (they go to the app as link data); the model only needs title, year, score.

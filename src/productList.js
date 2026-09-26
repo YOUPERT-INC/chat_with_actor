@@ -3,7 +3,8 @@
 // next titles of the "User's Pick" list (swipex_nodejs: `movie` with seeding_favorite=1), most
 // recommended (favorite_count) first, skipping the ones already recommended in this conversation.
 // The product code is the movie's `title` field (its `code` field is a source URL). Each code
-// becomes a link: {start, end, title, movie_id, type: "av"}; the app opens the page by movie_id.
+// becomes a link: {start, end, title, movie_id, type: "av", year?, thumbnail?, cover?}; the app opens the page by movie_id
+// (GET /swx/movie/detail/<movie_id>), no search.
 const db = require("./db");
 
 const PAGE_SIZE = 5;
@@ -109,7 +110,8 @@ const textFor = (lang) => TEXT[lang] || TEXT.en;
 
 /** Does the message ask for product codes (contains the keyword, in any app language)? */
 function wantsProductList(text) {
-  return KEYWORD_RE.test(String(text || ""));
+  // NFKC: a keyboard may send Hangul as separate jamo (or full-width letters); they must still match
+  return KEYWORD_RE.test(String(text || "").normalize("NFKC"));
 }
 
 /** person_id -> the name to show in this language (falls back to the name stored on the movie). */
@@ -140,7 +142,7 @@ async function nextPicks(conv, count) {
   const find = (filter) =>
     db
       .movies()
-      .find(filter, { projection: { title: 1, actress: 1 } })
+      .find(filter, { projection: { title: 1, actress: 1, share_date: 1, thumbnail: 1, cover_url: 1 } })
       .sort({ favorite_count: -1, seeding_favorite_time: -1 })
       .limit(count)
       .toArray();
@@ -162,6 +164,7 @@ async function nextPicks(conv, count) {
 async function buildReply(conv, lang) {
   const t = textFor(lang);
   const { rows, reset } = await nextPicks(conv, PAGE_SIZE);
+  console.log(`[productList] lang=${lang} shown=${rows.length} reset=${reset} earlier=${(conv.recommended_movies || []).length}`);
   if (!rows.length) return { text: t.none, links: [], ids: [], reset: false };
 
   const namesOf = await actressNames(rows, lang);
@@ -171,7 +174,18 @@ async function buildReply(conv, lang) {
     text += `\n${i + 1}. `;
     const start = text.length;
     text += m.title;
-    links.push({ start, end: text.length, title: m.title, movie_id: String(m._id), type: "av" });
+    const year = parseInt(String(m.share_date || "").slice(0, 4), 10);
+    links.push({
+      start,
+      end: text.length,
+      title: m.title,
+      movie_id: String(m._id),
+      type: "av",
+      ...(year > 1900 ? { year } : {}),
+      // raw images (poster and wide cover can differ): the app shows what the X list shows
+      ...(typeof m.thumbnail === "string" && m.thumbnail ? { thumbnail: m.thumbnail } : {}),
+      ...(typeof m.cover_url === "string" && m.cover_url ? { cover: m.cover_url } : {}),
+    });
     const names = namesOf(m);
     if (names) text += ` - ${names}`;
   });

@@ -214,7 +214,12 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       sharedUrls: new Set(conv.shared_urls || []),
       picked: [],
       knownTitles: [], // titles the tools returned this turn (their type helps the app open the right page)
+      recommended: new Set(conv.recommended_titles || []), // "movie:123" keys: never recommended again here
     };
+    // conversations from before `recommended_titles` existed: what the recent replies linked counts too
+    for (const m of recent) {
+      for (const l of m.links || []) if (l.tmdb_id && l.type) context.recommended.add(`${l.type}:${l.tmdb_id}`);
+    }
     // Clear "something funny" requests (and "another one" right after a link) are handled by the
     // server: it picks the post and tells the model exactly what to say, or that there is none.
     // Left to the model it made up posts without calling the tool.
@@ -237,7 +242,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
         content: m.role === "assistant" ? titleLinks.applyMarkers(linkGuard.stripLinkBlock(m.content), m.links) : titleLinks.stripMarkers(m.content),
       })),
       // earlier refusals in this chat ("I can't talk about that") would otherwise be repeated
-      ...(factsText ? [{ role: "system", content: verifiedFacts.HISTORY_REMINDER }] : []),
+      ...(factsText && verifiedFacts.mentionsFacts(text, factsText) ? [{ role: "system", content: verifiedFacts.HISTORY_REMINDER }] : []),
       // ...and the ⟦ ⟧ format is dropped once earlier replies in the chat have none
       { role: "system", content: titleLinks.MARK_REMINDER },
       { role: "user", content: text },
@@ -259,6 +264,8 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
     let replyText = extracted.text;
     // only titles the tools returned (they carry a TMDB id) become links
     const replyLinks = titleLinks.keepOpenable(extracted.links);
+    // what she named this turn is remembered, so the next recommendation is a different one
+    const recommendedNow = [...new Set(replyLinks.filter((l) => l.tmdb_id && l.type).map((l) => `${l.type}:${l.tmdb_id}`))];
     const spokenText = replyText; // what she says, without the link block (used for the list preview)
     const sharedPost = context.picked[0] || null; // one link per message
     if (sharedPost) replyText += humor.linkBlock(sharedPost);
@@ -279,7 +286,14 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       {
         $set: { last_message: spokenText.slice(0, 200), last_message_at: new Date(), actor_names: persona.displayNames, actor_avatar: persona.avatar },
         $inc: { message_count: 2 },
-        ...(sharedPost ? { $push: { shared_urls: { $each: [sharedPost.url], $slice: -300 } } } : {}),
+        ...(sharedPost || recommendedNow.length
+          ? {
+              $push: {
+                ...(sharedPost ? { shared_urls: { $each: [sharedPost.url], $slice: -300 } } : {}),
+                ...(recommendedNow.length ? { recommended_titles: { $each: recommendedNow, $slice: -400 } } : {}),
+              },
+            }
+          : {}),
       }
     );
     charged = false; // succeeded: the count stands

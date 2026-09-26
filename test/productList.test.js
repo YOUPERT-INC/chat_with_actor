@@ -35,12 +35,14 @@ function fakeCollections(list, actresses = []) {
   db.actresses = () => ({ find: () => ({ toArray: async () => actresses }) });
   return seenQueries;
 }
-const movies = (n) => Array.from({ length: n }, (_, i) => ({ _id: `id${i}`, title: `ABC-${100 + i}`, favorite_count: 1000 - i, actress: [{ person_id: "p1", name: "日本名" }] }));
+const movies = (n) => Array.from({ length: n }, (_, i) => ({ _id: `id${i}`, title: `ABC-${100 + i}`, favorite_count: 1000 - i, share_date: "2024-05-0" + (i % 9 + 1), thumbnail: `https://img.test/thumbs/${i}.jpg`, cover_url: `https://img.test/covers/${i}.jpg`, actress: [{ person_id: "p1", name: "日本名" }] }));
 
 test("the keyword is recognised in every app language, anywhere in the message", () => {
   for (const text of ["품번 알려줘", "추천 품번 좀", "品番を教えて", "给我番号", "給我番號", "give me a product code", "catalog number please", "kode produk dong", "nomor produk", "kod produk", "nombor produk", "дай артикул", "код продукта", "ขอรหัสสินค้า", "cho mình mã sản phẩm"]) {
     assert.ok(productList.wantsProductList(text), text);
   }
+  // Hangul sent as separate jamo by some keyboards
+  assert.ok(productList.wantsProductList("인기 있는 품번 추천해 줘.".normalize("NFD")));
   for (const text of ["영화 추천해 줘", "안녕", "what is your code of conduct", "", undefined]) {
     assert.ok(!productList.wantsProductList(text), String(text));
   }
@@ -54,6 +56,9 @@ test("five titles, most favourited first; each code is a link to its movie id; t
   for (const l of out.links) {
     assert.strictEqual(out.text.slice(l.start, l.end), l.title);
     assert.strictEqual(l.type, "av");
+    assert.strictEqual(l.year, 2024);
+    assert.match(l.thumbnail, /thumbs/);
+    assert.match(l.cover, /covers/);
     assert.ok(l.movie_id.startsWith("id"));
   }
   assert.ok(out.text.includes("ABC-100 - 한국이름"));

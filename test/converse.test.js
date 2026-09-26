@@ -80,7 +80,9 @@ test("runTool never throws: bad JSON, unknown tool and source failures become 'u
     assert.match(failed.note, /answer from what you know/);
     catalog.getTitles = async (args, ctx) => ({ items: [args, ctx] });
     const ok = await tools.runTool("get_titles", '{"category":"movie"}', { lang: "th" });
-    assert.deepStrictEqual(ok.items, [{ category: "movie" }, { lang: "th" }]);
+    // the runner asks for a whole page (count 20, page 1) so it can skip titles already recommended
+    assert.deepStrictEqual(ok.items.slice(0, 1), [{ category: "movie", count: 20, page: 1 }]);
+    assert.strictEqual(ok.items[1].lang, "th");
   } finally {
     catalog.getTitles = realGet;
   }
@@ -150,7 +152,8 @@ test("the recommendation tool is offered and routed by runTool", async () => {
   try {
     catalog.getTitles = async (args, ctx) => ({ items: ["list", args, ctx] });
     const r = await tools.runTool("get_titles", '{"category":"tv"}', { lang: "ko", country: "KR" });
-    assert.deepStrictEqual(r.items, ["list", { category: "tv" }, { lang: "ko", country: "KR" }]);
+    assert.deepStrictEqual(r.items.slice(0, 2), ["list", { category: "tv", count: 20, page: 1 }]);
+    assert.deepStrictEqual([r.items[2].lang, r.items[2].country], ["ko", "KR"]);
     assert.strictEqual((await tools.runTool("get_catalog_picks", "{}")).error, "unknown tool");
   } finally {
     catalog.getTitles = real;

@@ -168,3 +168,17 @@ test("missing TMDB token or a broken response is an error, never an empty succes
   axios.get = async () => ({ data: { unexpected: true } });
   await assert.rejects(catalog.getTitles({ category: "tv" }), /unexpected/);
 });
+
+test("page 2 asks TMDB for page 2 (page 1 adds no parameter), pages are cached separately, up to a full page is returned", async () => {
+  config.tmdbBearer = "t";
+  const seen = recordTmdb(many((t) => movie(t), 20));
+  const first = await catalog.getTitles({ category: "movie", count: 20 }, { lang: "en" });
+  assert.strictEqual(first.items.length, 20);
+  assert.strictEqual(seen[0].params.page, 1, "TMDB default page");
+  await catalog.getTitles({ category: "movie", count: 20, page: 2 }, { lang: "en" });
+  assert.strictEqual(seen[1].params.page, 2);
+  await catalog.getTitles({ category: "movie", count: 20, page: 2 }, { lang: "en" });
+  assert.strictEqual(seen.length, 2, "page 2 came from the cache the second time");
+  await catalog.getTitles({ category: "movie", count: 20, page: 99 }, { lang: "en" });
+  assert.strictEqual(seen.length, 2, "an out-of-range page means page 1, which is cached");
+});

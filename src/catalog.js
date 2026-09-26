@@ -135,7 +135,9 @@ function normalizeArgs(args, { lang = "en", country = "" } = {}) {
   const category = CATEGORIES.includes(a.category) ? a.category : null;
   if (!category) throw new Error("category must be anime, movie or tv");
   const kind = KINDS.includes(a.kind) ? a.kind : "popular";
-  const count = Math.min(Math.max(parseInt(a.count, 10) || 5, 1), 10);
+  // the model asks for at most 10 (tool schema); tools.js fetches a whole TMDB page (20) to skip repeats
+  const count = Math.min(Math.max(parseInt(a.count, 10) || 5, 1), 20);
+  const page = intOrNull(a.page, 1, 5) || 1;
 
   // a given region means "made in that country" even when the model forgot scope=country
   const scope = a.scope === "country" || (a.scope !== "global" && validCountry(a.region)) ? "country" : "global";
@@ -154,7 +156,7 @@ function normalizeArgs(args, { lang = "en", country = "" } = {}) {
   const maxRuntime = category === "movie" ? intOrNull(a.max_runtime, 30, 400) : null;
   const language = /^[a-z]{2}$/.test(String(a.original_language || "")) ? a.original_language : null;
 
-  return { category, kind, count, scope, region, genres, genreIgnored, yearFrom, yearTo, minRating, maxRuntime, language };
+  return { category, kind, count, page, scope, region, genres, genreIgnored, yearFrom, yearTo, minRating, maxRuntime, language };
 }
 
 /** TMDB /discover parameters for a normalised request. `wide` widens the "recent" window. */
@@ -200,6 +202,9 @@ function discoverParams(q, { wide = false } = {}) {
   return p;
 }
 
+// only page 2 and later add a parameter (page 1 is TMDB's default)
+const pageParam = (q) => (q.page > 1 ? { page: q.page } : {});
+
 async function fetchItems(q, lang) {
   const isMovie = q.category === "movie";
   const path = isMovie ? "/discover/movie" : "/discover/tv";
@@ -208,13 +213,13 @@ async function fetchItems(q, lang) {
   if (q.kind === "trending" && plain) {
     // TMDB's trending endpoints take no filter: fetch the page and filter genres here
     const ids = q.genres.map((g) => (isMovie ? MOVIE_GENRE_IDS : TV_GENRE_IDS)[g]);
-    const results = await tmdbGet(`/trending/${isMovie ? "movie" : "tv"}/week`, {}, lang);
+    const results = await tmdbGet(`/trending/${isMovie ? "movie" : "tv"}/week`, pageParam(q), lang);
     return tmdbItems(results, q.count, ids);
   }
 
-  let items = tmdbItems(await tmdbGet(path, discoverParams(q), lang), q.count);
-  const canWiden = q.kind !== "top_rated" && !q.yearFrom && !q.yearTo;
-  if (items.length < q.count && canWiden) {
+  let items = tmdbItems(await tmdbGet(path, { ...discoverParams(q), ...pageParam(q) }, lang), q.count);
+  const canWiden = q.kind !== "top_rated" && !q.yearFrom && !q.yearTo && q.page === 1;
+  if (items.length < Math.min(q.count, 5) && canWiden) {
     items = tmdbItems(await tmdbGet(path, discoverParams(q, { wide: true }), lang), q.count);
   }
   return items;
@@ -230,7 +235,7 @@ async function fetchItems(q, lang) {
  */
 async function getTitles(args, { lang = "en", country = "" } = {}) {
   const q = normalizeArgs(args, { lang, country });
-  const key = JSON.stringify([q.category, q.kind, q.count, q.scope, q.region, q.genres, q.yearFrom, q.yearTo, q.minRating, q.maxRuntime, q.language, lang]);
+  const key = JSON.stringify([q.category, q.kind, q.count, q.page, q.scope, q.region, q.genres, q.yearFrom, q.yearTo, q.minRating, q.maxRuntime, q.language, lang]);
   const hit = cache.get(key);
   if (hit && hit.exp > Date.now()) return hit.value;
 
