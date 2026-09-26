@@ -165,10 +165,11 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
     sending.add(convId);
     locked = true;
 
-    // "품번" (product code) request: a fixed template + the next titles of User's Pick, no model call.
+    // "품번" (product code) / category keyword request: a fixed template + the next titles of that list, no model call.
     // These two messages are flagged `template` and left out of what the model sees later.
-    if (productList.wantsProductList(text)) {
-      const out = await productList.buildReply(conv, String(req.body.lang || "en").toLowerCase());
+    const listKey = productList.detectList(text);
+    if (listKey) {
+      const out = await productList.buildReply(conv, String(req.body.lang || "en").toLowerCase(), listKey);
       const at = new Date();
       const saved = await db.messages().insertMany([
         { conversation_id: conv._id, role: "user", content: text, created_at: at, template: true },
@@ -182,12 +183,10 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
             last_message_at: new Date(),
             actor_names: persona.displayNames,
             actor_avatar: persona.avatar,
-            // shown titles are remembered so the next request continues with new ones; when the list
-            // ran out and started over, the list starts over too
-            ...(out.reset ? { recommended_movies: out.ids } : {}),
+            // where this list stopped: the next request for it continues after it (no title repeats here)
+            ...(out.cursor ? { [`product_cursors.${listKey}`]: out.cursor } : {}),
           },
           $inc: { message_count: 2 },
-          ...(out.ids.length && !out.reset ? { $push: { recommended_movies: { $each: out.ids } } } : {}),
         }
       );
       charged = false; // succeeded: the count stands
