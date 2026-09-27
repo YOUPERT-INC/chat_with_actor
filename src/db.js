@@ -10,6 +10,11 @@ const USAGE_LIFETIME = "actor_chat_usage_lifetime"; // one running total per use
 const CARDS = "actor_persona_cards";
 const HUMOR = "actor_humor_posts";
 const FACTS = "actor_verified_facts";
+// manko.fun / javclick.com's logged-in product-code-only chat: kept apart from CONVERSATIONS /
+// MESSAGES on purpose, so it never mixes into the app's real (paid, model-driven) chat history for
+// an account that also has an app subscription — see routes.js's /web router.
+const WEB_CONVERSATIONS = "web_chat_conversations";
+const WEB_MESSAGES = "web_chat_messages";
 
 async function connect() {
   if (!config.mongoUri) throw new Error("MONGODB_URI is not set");
@@ -18,6 +23,9 @@ async function connect() {
   await db.collection(CONVERSATIONS).createIndex({ user: 1, person_id: 1 }, { unique: true });
   await db.collection(CONVERSATIONS).createIndex({ user: 1, last_message_at: -1 });
   await db.collection(MESSAGES).createIndex({ conversation_id: 1, _id: -1 });
+  await db.collection(WEB_CONVERSATIONS).createIndex({ user: 1, person_id: 1 }, { unique: true });
+  await db.collection(WEB_CONVERSATIONS).createIndex({ user: 1, last_message_at: -1 });
+  await db.collection(WEB_MESSAGES).createIndex({ conversation_id: 1, _id: -1 });
   await db.collection(USAGE).createIndex({ user: 1, day: 1 }, { unique: true });
   await db.collection(USAGE_MONTH).createIndex({ user: 1, month: 1 }, { unique: true });
   await db.collection(USAGE_LIFETIME).createIndex({ user: 1 }, { unique: true });
@@ -40,6 +48,8 @@ module.exports = {
   connect,
   conversations: () => col(CONVERSATIONS),
   messages: () => col(MESSAGES),
+  webConversations: () => col(WEB_CONVERSATIONS),
+  webMessages: () => col(WEB_MESSAGES),
   usage: () => col(USAGE),
   usageMonth: () => col(USAGE_MONTH),
   usageLifetime: () => col(USAGE_LIFETIME),

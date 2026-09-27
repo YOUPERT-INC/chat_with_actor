@@ -130,6 +130,19 @@ router.post("/public/titles", async (req, res) => {
   }
 });
 
+// manko.fun / javclick.com, logged in: same product-code-only chat as /public/titles above, but
+// persisted server-side (the app's account DB is shared with these sites — see README). The
+// preflight has to be answered here, before requireUser, since a CORS preflight carries no
+// Authorization header and would otherwise get a 401 instead of the 204 the browser expects.
+router.options(["/web/conversations", "/web/conversations/:id/messages", "/web/conversations/:id"], (req, res) => {
+  setPublicCors(req, res);
+  res.set({
+    "Access-Control-Allow-Methods": "GET, POST, DELETE",
+    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  });
+  res.status(204).end();
+});
+
 router.use(requireUser);
 
 // Chat button: can this actress be chatted with, does the user have an active membership,
@@ -444,6 +457,148 @@ router.delete("/conversations/:id", async (req, res, next) => {
     if (!conv) return;
     await db.messages().deleteMany({ conversation_id: conv._id });
     await db.conversations().deleteOne({ _id: conv._id });
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ---- manko.fun / javclick.com: logged-in, product-code-only chat -------------------------------
+// Same account DB as the app (requireUser above already covers it), but NEVER the model and NEVER
+// gated on membership: this is the always-free product-code bot, kept in its own collections
+// (db.webConversations/webMessages) precisely so it can never mix into the app's real, paid,
+// persona-driven chat history for an account that also happens to hold an app subscription.
+
+// Actress display info only (name/avatar) for the chat list/header — deliberately not getPersona:
+// that one also gates on her Korean bio being long enough for a companion character, which has
+// nothing to do with whether her product codes can be looked up.
+async function actressDisplay(personId) {
+  if (typeof personId !== "string" || !/^[A-Za-z0-9_-]{1,32}$/.test(personId)) return null;
+  const doc = await db
+    .actresses()
+    .findOne({ person_id: personId, is_active: { $ne: 0 } }, { projection: { person_id: 1, name: 1, also_known_as: 1, avatar: 1 } });
+  if (!doc) return null;
+  const names = { ...(doc.also_known_as || {}) };
+  if (!names.jp && doc.name) names.jp = doc.name;
+  return { displayNames: names, avatar: doc.avatar || "" };
+}
+
+async function ownWebConversation(req, res) {
+  const id = parseId(req.params.id);
+  const conv = id && (await db.webConversations().findOne({ _id: id, user: req.user.email }));
+  if (!conv) {
+    res.status(404).json({ error: "NOT_FOUND" });
+    return null;
+  }
+  return conv;
+}
+
+router.get("/web/conversations", async (req, res, next) => {
+  setPublicCors(req, res);
+  try {
+    const list = await db.webConversations().find({ user: req.user.email }).sort({ last_message_at: -1 }).limit(100).toArray();
+    res.json({ conversations: list.map((c) => toConversation(c, req)) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Get-or-create the single web conversation between this user and this actress.
+router.post("/web/conversations", async (req, res, next) => {
+  setPublicCors(req, res);
+  try {
+    const personId = req.body && req.body.person_id;
+    const display = await actressDisplay(personId);
+    if (!display) return res.status(409).json({ error: "NO_PROFILE" });
+
+    const now = new Date();
+    await db.webConversations().updateOne(
+      { user: req.user.email, person_id: personId },
+      {
+        $setOnInsert: { created_at: now, last_message_at: now, message_count: 0, last_message: "", seen: [], cursors: {} },
+        $set: { actor_names: display.displayNames, actor_avatar: display.avatar },
+      },
+      { upsert: true }
+    );
+    const conv = await db.webConversations().findOne({ user: req.user.email, person_id: personId });
+    res.json({ conversation: toConversation(conv, req) });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get("/web/conversations/:id/messages", async (req, res, next) => {
+  setPublicCors(req, res);
+  try {
+    const conv = await ownWebConversation(req, res);
+    if (!conv) return;
+
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 30, 1), 100);
+    const filter = { conversation_id: conv._id };
+    const before = parseId(req.query.before);
+    if (before) filter._id = { $lt: before };
+
+    const rows = await db.webMessages().find(filter).sort({ _id: -1 }).limit(limit).toArray();
+    res.json({ messages: rows.reverse().map(toMessage), has_more: rows.length === limit });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.post("/web/conversations/:id/messages", async (req, res) => {
+  setPublicCors(req, res);
+  try {
+    const conv = await ownWebConversation(req, res);
+    if (!conv) return;
+
+    const text = req.body && typeof req.body.text === "string" ? req.body.text.trim() : "";
+    if (!text) return res.status(400).json({ error: "EMPTY_MESSAGE" });
+    if (text.length > config.maxInputChars) return res.status(400).json({ error: "MESSAGE_TOO_LONG" });
+    if (!rateLimit.allow(`web:${req.user.email}`, rateLimit.PRODUCT_LIST_LIMITS)) {
+      return res.status(429).json({ error: "RATE_LIMITED" });
+    }
+
+    const lang = String(req.body.lang || "en").toLowerCase();
+    const out = await productList.publicReply(text, lang, { personId: conv.person_id, seen: conv.seen || [], cursors: conv.cursors || {} });
+
+    const now = new Date();
+    const inserted = await db.webMessages().insertMany([
+      { conversation_id: conv._id, role: "user", content: text, created_at: now },
+      {
+        conversation_id: conv._id,
+        role: "assistant",
+        content: out.text,
+        created_at: new Date(now.getTime() + 1),
+        ...(out.links && out.links.length ? { links: out.links } : {}),
+      },
+    ]);
+
+    const update = { $set: { last_message: out.text.slice(0, 200), last_message_at: now }, $inc: { message_count: 2 } };
+    if (out.matched === "own") {
+      const added = (out.links || []).filter((l) => l.title).map((l) => `av:${productList.normCode(l.title)}`);
+      update.$set.seen = [...new Set([...(conv.seen || []), ...added])].slice(-400);
+    } else if (out.matched) {
+      update.$set.cursors = { ...(conv.cursors || {}), [out.matched]: out.cursor };
+    }
+    await db.webConversations().updateOne({ _id: conv._id }, update);
+
+    res.json({
+      user_message: toMessage({ _id: inserted.insertedIds[0], role: "user", content: text, created_at: now }),
+      reply: toMessage({ _id: inserted.insertedIds[1], role: "assistant", content: out.text, created_at: new Date(now.getTime() + 1), links: out.links }),
+    });
+  } catch (error) {
+    console.log("[web/send] failed:", error.message);
+    res.status(502).json({ error: "UNAVAILABLE" });
+  }
+});
+
+router.delete("/web/conversations/:id", async (req, res, next) => {
+  setPublicCors(req, res);
+  try {
+    const conv = await ownWebConversation(req, res);
+    if (!conv) return;
+    await db.webMessages().deleteMany({ conversation_id: conv._id });
+    await db.webConversations().deleteOne({ _id: conv._id });
     res.json({ success: true });
   } catch (error) {
     next(error);
