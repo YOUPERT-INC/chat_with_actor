@@ -59,3 +59,21 @@ test("keepOpenable keeps only titles that came from a tool result (they have an 
   ]);
   assert.deepStrictEqual(kept.map((l) => l.title), ["A", "B"]);
 });
+
+test("her own titles (product codes, movie_id) become links too, with thumbnail/cover carried over", () => {
+  const known = [{ title: "ABC-100", year: 2024, type: "av", movie_id: "id000", thumbnail: "https://img.test/t.jpg", cover: "https://img.test/c.jpg" }];
+  const { text, links } = extractTitleLinks("오늘은 ⟦ABC-100⟧ (2024) 추천할게", known);
+  assert.strictEqual(text, "오늘은 ABC-100 (2024) 추천할게");
+  assert.deepStrictEqual(links[0].type, "av");
+  assert.strictEqual(links[0].movie_id, "id000");
+  assert.strictEqual(links[0].thumbnail, "https://img.test/t.jpg");
+  assert.strictEqual(links[0].cover, "https://img.test/c.jpg");
+});
+
+test("keepOpenable also keeps a movie_id-only link (her own titles have no TMDB/IMDb id)", () => {
+  const kept = keepOpenable([
+    { start: 0, end: 2, title: "A", year: 2024, type: "av", movie_id: "id000" },
+    { start: 3, end: 5, title: "Written from memory", year: 2001, type: "av" },
+  ]);
+  assert.deepStrictEqual(kept.map((l) => l.title), ["A"]);
+});

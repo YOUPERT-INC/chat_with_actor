@@ -24,9 +24,9 @@ test("runTool keeps ids for the server (knownTitles) and hides them from the mod
   }
 });
 
-test("one recommendation tool (TMDB parameters); the old catalogue tool is gone", () => {
+test("the recommendation tools (TMDB parameters + own titles); the old catalogue tool is gone", () => {
   const names = toolDefsFor({ lang: "en" }).map((t) => t.function.name);
-  assert.deepStrictEqual(names, ["get_titles"]);
+  assert.deepStrictEqual(names, ["get_titles", "get_own_titles"]);
 });
 
 // ---- no repeats within a conversation ----
@@ -91,4 +91,23 @@ test("a movie and a series with the same TMDB id are different titles", async ()
     const r = await runTool("get_titles", { category: "movie", count: 5 }, { knownTitles: [], recommended: new Set(["movie:5"]) });
     assert.deepStrictEqual(r.items.map((i) => `${i.title}`), ["T5", "T6"]);
   });
+});
+
+// ---- get_own_titles (her own filmography; see productList.getOwnTitles) ---------------------
+
+test("runTool routes get_own_titles to productList.getOwnTitles with the conversation's context, and hides the ids/type from the model", async () => {
+  const productList = require("../src/productList");
+  const orig = productList.getOwnTitles;
+  productList.getOwnTitles = async (context) => {
+    assert.strictEqual(context.personId, "p1");
+    return { items: [{ title: "ABC-100", year: 2024, type: "av", movie_id: "id000", thumbnail: "https://img.test/t.jpg", cover: "https://img.test/c.jpg" }] };
+  };
+  try {
+    const context = { lang: "ko", personId: "p1", knownTitles: [] };
+    const shown = await runTool("get_own_titles", {}, context);
+    assert.deepStrictEqual(shown.items, [{ title: "ABC-100", year: 2024 }]); // no movie_id/thumbnail/cover/type reaches the model
+    assert.deepStrictEqual(context.knownTitles, [{ title: "ABC-100", year: 2024, type: "av", movie_id: "id000", thumbnail: "https://img.test/t.jpg", cover: "https://img.test/c.jpg" }]);
+  } finally {
+    productList.getOwnTitles = orig;
+  }
 });

@@ -21,6 +21,7 @@ function fakeCollections(list, { actresses = [], indexes = [productList.RANK_IND
       queries.push({ filter, opts });
       let rows = [...list].sort((a, b) => b.favorite_count - a.favorite_count || (a._id < b._id ? 1 : -1));
       if (filter.category_id) rows = rows.filter((m) => m.category_id === filter.category_id);
+      if (filter["actress.person_id"]) rows = rows.filter((m) => (m.actress || []).some((a) => a.person_id === filter["actress.person_id"]));
       if (filter.$or) {
         const [lower, tie] = filter.$or;
         rows = rows.filter((m) => m.favorite_count < lower.favorite_count.$lt || (m.favorite_count === tie.favorite_count && m._id < tie._id.$lt));
@@ -233,4 +234,41 @@ test("a title without a release date shows no empty brackets; the code stays the
   assert.ok(!line.includes("()"));
   assert.strictEqual(out.text.slice(out.links[0].start, out.links[0].end), "ABC-100");
   assert.strictEqual(out.links[0].year, undefined);
+});
+
+// ---- getOwnTitles (get_own_titles tool) -----------------------------------------------------
+
+test("getOwnTitles: only this actress's titles, most-favourited first, capped at the count", async () => {
+  const hers = movies(8).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
+  const others = movies(3, (i) => 2000 - i).map((m) => ({ ...m, _id: `other${m._id}`, actress: [{ person_id: "p2", name: "他人" }] }));
+  fakeCollections([...hers, ...others]);
+  const out = await productList.getOwnTitles({ personId: "p1" });
+  assert.strictEqual(out.items.length, 5);
+  assert.deepStrictEqual(out.items.map((i) => i.title), ["ABC-100", "ABC-101", "ABC-102", "ABC-103", "ABC-104"]);
+  assert.ok(out.items.every((i) => i.type === "av" && i.movie_id));
+  assert.ok(out.items[0].thumbnail && out.items[0].cover && out.items[0].year > 1900);
+  assert.strictEqual(out.note, undefined);
+});
+
+test("getOwnTitles: no personId (context not wired to a conversation) is empty, never every actress", async () => {
+  fakeCollections(movies(5));
+  assert.deepStrictEqual(await productList.getOwnTitles({}), { items: [] });
+});
+
+test("getOwnTitles: titles already recommended in this chat are skipped, with a note; enough slack to still fill up", async () => {
+  const hers = movies(8).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
+  fakeCollections(hers);
+  const recommended = new Set(["av:id000", "av:id001", "av:id002"]); // the 3 most-favourited
+  const out = await productList.getOwnTitles({ personId: "p1", recommended }, 5);
+  assert.deepStrictEqual(out.items.map((i) => i.title), ["ABC-103", "ABC-104", "ABC-105", "ABC-106", "ABC-107"]);
+  assert.match(out.note, /already recommended/);
+});
+
+test("getOwnTitles: everything already recommended returns fewer (or none), never a repeat", async () => {
+  const hers = movies(3).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
+  fakeCollections(hers);
+  const recommended = new Set(["av:id000", "av:id001", "av:id002"]);
+  const out = await productList.getOwnTitles({ personId: "p1", recommended }, 5);
+  assert.deepStrictEqual(out.items, []);
+  assert.match(out.note, /already recommended/);
 });

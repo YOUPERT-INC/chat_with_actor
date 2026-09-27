@@ -1,7 +1,8 @@
-// Title links: the model wraps every movie / TV / anime title it names in ⟦ ⟧. The server removes
-// the brackets and returns where each title sits in the final text (`links`), so the app can show
-// it as a tappable link. Nothing here is an address; only titles the tools returned (with their TMDB
-// id) become links, and the app opens the title's page by that id.
+// Title links: the model wraps every movie / TV / anime title, or one of her own titles (product
+// code), it names in ⟦ ⟧. The server removes the brackets and returns where each title sits in the
+// final text (`links`), so the app can show it as a tappable link. Nothing here is an address; only
+// titles the tools returned (with their TMDB id, or her own movie_id) become links, and the app
+// opens the title's page by that id.
 
 const OPEN = "⟦";
 const CLOSE = "⟧";
@@ -41,13 +42,16 @@ function extractTitleLinks(text, known = []) {
 
     const hit = byName.get(normName(title));
     const year = m[2] ? parseInt(m[2], 10) : (hit && hit.year) || null;
-    // anything but "movie" / "tv" says nothing about film vs series: leave the type open
+    // anything but "movie" / "tv" / "av" (her own titles) says nothing about film vs series: leave the type open
     const rawType = hit && (hit.tmdb_type || hit.type);
-    const type = rawType === "movie" || rawType === "tv" ? rawType : null;
+    const type = rawType === "movie" || rawType === "tv" || rawType === "av" ? rawType : null;
     const link = { start, end, title, year, type };
     // ids of the source the title came from: the app opens the page by id, no name search
     if (hit && hit.tmdb_id) link.tmdb_id = hit.tmdb_id;
     if (hit && hit.imdb_id) link.imdb_id = hit.imdb_id;
+    if (hit && hit.movie_id) link.movie_id = hit.movie_id;
+    if (hit && hit.thumbnail) link.thumbnail = hit.thumbnail;
+    if (hit && hit.cover) link.cover = hit.cover;
     if (title && links.length < MAX_LINKS) links.push(link);
   }
   out += text.slice(cursor);
@@ -58,11 +62,12 @@ function extractTitleLinks(text, known = []) {
 
 /**
  * Keeps only the links the app can really open: a title the tools returned this turn, which comes
- * with the id of its TMDB page. A title the model wrote from memory has no id and gets no link (no
- * title search: no link is better than a wrong page). Text and offsets are untouched.
+ * with the id of its page (TMDB, or her own movie_id for get_own_titles). A title the model wrote
+ * from memory has no id and gets no link (no title search: no link is better than a wrong page).
+ * Text and offsets are untouched.
  */
 function keepOpenable(links) {
-  return links.filter((link) => link.tmdb_id || link.imdb_id);
+  return links.filter((link) => link.tmdb_id || link.imdb_id || link.movie_id);
 }
 
 /** Put the markers back into a stored reply so the model keeps seeing (and using) the format. */
@@ -81,7 +86,7 @@ function applyMarkers(content, links) {
 // Sent right after the chat history. In a chat whose earlier replies have no markers the model
 // copies that habit and the app gets no links (seen in production), so it is repeated here.
 const MARK_REMINDER =
-  "Format reminder: wrap the name of every movie, TV series or anime you mention in ⟦ ⟧ followed by its year in normal brackets, as in ⟦Parasite⟧ (2019), even if your earlier replies in this chat did not. Never for books, games, music or people.";
+  "Format reminder: wrap the name of every movie, TV series or anime you mention, or one of your own titles (product code), in ⟦ ⟧ followed by its year in normal brackets when you know it, as in ⟦Parasite⟧ (2019), even if your earlier replies in this chat did not. Never for books, games, music or people.";
 
 /** Does the text name titles (⟦ ⟧ markers)? */
 const namesTitles = (text) => new RegExp(MARK_RE.source).test(String(text || ""));

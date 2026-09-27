@@ -2,8 +2,11 @@
  * Tools the avatar may call while chatting (OpenAI-style function calling, supported by
  * DeepSeek). Recommendations: get_titles asks TMDB for a list by category, genre, country, year
  * and rating parameters, so answers come from real data instead of the model's older memory.
+ * get_own_titles is the same idea for her own filmography (see productList.js): fixed to this
+ * conversation's actress, so it can never be pointed at anyone else.
  */
 const catalog = require("./catalog");
+const productList = require("./productList");
 const humor = require("./humor");
 
 const TOOL_DEFS = [
@@ -41,6 +44,18 @@ const TOOL_DEFS = [
         },
         required: ["category"],
       },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "get_own_titles",
+      description:
+        "Your own titles (product codes), most recommended by users first. It takes no parameters: it always gives " +
+        "YOUR OWN list and can never be pointed at another actress. Call it when the user asks what you have starred " +
+        "in, your best or most popular work, or asks you to recommend one of your own titles. Never invent a product " +
+        "code yourself; only use exactly what this returns. Do not use it for casual chat.",
+      parameters: { type: "object", properties: {} },
     },
   },
 ];
@@ -106,12 +121,14 @@ async function getFreshTitles(args, context) {
 const RUNNERS = {
   get_funny_post: (args, context) => humor.pickForContext(context),
   get_titles: (args, context) => getFreshTitles(args, context),
+  get_own_titles: (args, context) => productList.getOwnTitles(context),
 };
 
-// Ids stay on the server (they go to the app as link data); the model only needs title, year, score.
+// Ids (and the internal "av" type tag) stay on the server (they go to the app as link data); the
+// model only needs title, year, score.
 const stripIds = (item) => {
   if (!item || typeof item !== "object" || Array.isArray(item)) return item;
-  const { tmdb_id, tmdb_type, imdb_id, ...rest } = item;
+  const { tmdb_id, tmdb_type, imdb_id, movie_id, thumbnail, cover, type, ...rest } = item;
   return rest;
 };
 function withoutIds(result) {

@@ -213,11 +213,13 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       sharedUrls: new Set(conv.shared_urls || []),
       picked: [],
       knownTitles: [], // titles the tools returned this turn (their type helps the app open the right page)
-      recommended: new Set(conv.recommended_titles || []), // "movie:123" keys: never recommended again here
+      personId: conv.person_id, // fixes get_own_titles to this actress; never taken from the model
+      recommended: new Set(conv.recommended_titles || []), // "movie:123" / "av:<movie id>" keys: never recommended again here
     };
     // conversations from before `recommended_titles` existed: what the recent replies linked counts too
+    // (this also picks up plain product-code replies from before get_own_titles existed)
     for (const m of recent) {
-      for (const l of m.links || []) if (l.tmdb_id && l.type) context.recommended.add(`${l.type}:${l.tmdb_id}`);
+      for (const l of m.links || []) if (l.type && (l.tmdb_id || l.movie_id)) context.recommended.add(`${l.type}:${l.tmdb_id || l.movie_id}`);
     }
     // Clear "something funny" requests (and "another one" right after a link) are handled by the
     // server: it picks the post and tells the model exactly what to say, or that there is none.
@@ -264,7 +266,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
     // only titles the tools returned (they carry a TMDB id) become links
     const replyLinks = titleLinks.keepOpenable(extracted.links);
     // what she named this turn is remembered, so the next recommendation is a different one
-    const recommendedNow = [...new Set(replyLinks.filter((l) => l.tmdb_id && l.type).map((l) => `${l.type}:${l.tmdb_id}`))];
+    const recommendedNow = [...new Set(replyLinks.filter((l) => l.type && (l.tmdb_id || l.movie_id)).map((l) => `${l.type}:${l.tmdb_id || l.movie_id}`))];
     const spokenText = replyText; // what she says, without the link block (used for the list preview)
     const sharedPost = context.picked[0] || null; // one link per message
     if (sharedPost) replyText += humor.linkBlock(sharedPost);

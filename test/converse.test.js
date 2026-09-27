@@ -147,7 +147,7 @@ test("tool definition: TMDB parameters (kind, scope, region, genres, years, rati
 });
 
 test("the recommendation tool is offered and routed by runTool", async () => {
-  assert.deepStrictEqual(tools.TOOL_DEFS.map((t) => t.function.name), ["get_titles"]);
+  assert.deepStrictEqual(tools.TOOL_DEFS.map((t) => t.function.name), ["get_titles", "get_own_titles"]);
   const real = catalog.getTitles;
   try {
     catalog.getTitles = async (args, ctx) => ({ items: ["list", args, ctx] });

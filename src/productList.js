@@ -11,6 +11,10 @@
 // The product code is the movie's `title` field (its `code` field is a source URL). Each code
 // becomes a link: {start, end, title, movie_id, type: "av", year?, thumbnail?, cover?}; the app opens
 // the page by movie_id (GET /swx/movie/detail/<movie_id>), no search.
+//
+// getOwnTitles (below) is the same idea for one avatar's own filmography, but through the
+// get_own_titles model tool (src/tools.js) instead of a keyword: the avatar decides when a message
+// asks for her own best/most-starred-in titles, the server only ever answers with her real ones.
 const db = require("./db");
 
 const PAGE_SIZE = 5;
@@ -327,6 +331,69 @@ async function buildReply(conv, lang, list = "all") {
   return { text, links, cursor: cursorOf(rows[rows.length - 1]), reset };
 }
 
+// ---- one avatar's own titles (get_own_titles tool) ------------------------------------------
+
+const OWN_TITLES_COUNT = 5;
+
+/**
+ * Her own most-favourited titles, for the get_own_titles tool. `context.personId` is the
+ * conversation's actress: fixed server-side, so the model has no way to point this at anyone
+ * else. Titles already recommended in this conversation (`context.recommended`, key
+ * "av:<movie id>", shared with get_titles' movie/TV keys and with the ones plain product-code
+ * replies already sent) are skipped.
+ *
+ * Relies on the same `actress.person_id` index the X API's own `/swx/movie/search?person_id=`
+ * uses (see swipex_nodejs): one actress's titles are few, so no dedicated favorite_count index
+ * is needed here the way the site-wide product-code lists need `chat_product_rank`.
+ */
+async function getOwnTitles(context, count = OWN_TITLES_COUNT) {
+  const personId = context && context.personId;
+  if (!personId) return { items: [] };
+  const seen = context.recommended instanceof Set ? context.recommended : new Set();
+
+  const rows = await db
+    .movies()
+    .find(
+      { "actress.person_id": personId, is_active: 1, favorite_count: { $exists: true, $gt: 0 } },
+      { projection: { title: 1, share_date: 1, thumbnail: 1, cover_url: 1, favorite_count: 1 } }
+    )
+    .sort({ favorite_count: -1, _id: -1 })
+    .limit(Math.min(count * 6, 60)) // enough slack to skip past ones already recommended
+    .toArray();
+
+  let skipped = 0;
+  const items = [];
+  for (const m of rows) {
+    if (items.length >= count) break;
+    if (seen.has(`av:${m._id}`)) {
+      skipped++;
+      continue;
+    }
+    const year = parseInt(String(m.share_date || "").slice(0, 4), 10);
+    items.push({
+      title: m.title,
+      type: "av",
+      movie_id: String(m._id),
+      ...(year > 1900 ? { year } : {}),
+      ...(typeof m.thumbnail === "string" && m.thumbnail ? { thumbnail: m.thumbnail } : {}),
+      ...(typeof m.cover_url === "string" && m.cover_url ? { cover: m.cover_url } : {}),
+    });
+  }
+  return { items, ...(skipped ? { note: "Titles already recommended in this chat were left out; these are all new." } : {}) };
+}
+
 const _resetIndexCheck = () => indexState.clear();
 
-module.exports = { detectList, wantsProductList, buildReply, PAGE_SIZE, TEXT, LABELS, CATEGORIES, RANK_INDEX, CATEGORY_INDEX, _resetIndexCheck };
+module.exports = {
+  detectList,
+  wantsProductList,
+  buildReply,
+  getOwnTitles,
+  PAGE_SIZE,
+  TEXT,
+  LABELS,
+  CATEGORIES,
+  RANK_INDEX,
+  CATEGORY_INDEX,
+  _resetIndexCheck,
+};
