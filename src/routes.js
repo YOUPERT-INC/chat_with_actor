@@ -63,20 +63,32 @@ async function ownConversation(req, res) {
 
 router.get("/health", (req, res) => res.json({ ok: true }));
 
-// Public, unauthenticated: manko.fun's product-code-only chat widget (no login there, and it can't
-// call the M API). No model call, ever — see productList.publicReply — so no message quota applies;
-// only the request-rate limit, keyed by IP since there is no account.
-const PUBLIC_CORS_ORIGIN = "https://manko.fun";
+// Public, unauthenticated: the same product-code-only chat widget on manko.fun (and, soon,
+// javclick.com) — no login on either, and neither can call the M API. No model call, ever — see
+// productList.publicReply — so no message quota applies; only the request-rate limit, keyed by IP
+// since there is no account. CORS can only ever echo back ONE origin per response (never a list),
+// so the allowed one is picked per request from this fixed set; anything else gets no CORS header
+// at all (the browser then blocks it) — never a wildcard, since the endpoint is meant for these
+// sites specifically, not for embedding by anyone. localhost is always allowed too, for local dev.
+const PUBLIC_CORS_ORIGINS = ["https://manko.fun", "https://javclick.com"];
+const LOCALHOST_ORIGIN_RE = /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+function setPublicCors(req, res) {
+  const origin = req.headers.origin;
+  if (origin && (PUBLIC_CORS_ORIGINS.includes(origin) || LOCALHOST_ORIGIN_RE.test(origin))) {
+    res.set("Access-Control-Allow-Origin", origin);
+    res.set("Vary", "Origin");
+  }
+}
 router.options("/public/titles", (req, res) => {
+  setPublicCors(req, res);
   res.set({
-    "Access-Control-Allow-Origin": PUBLIC_CORS_ORIGIN,
     "Access-Control-Allow-Methods": "POST",
     "Access-Control-Allow-Headers": "Content-Type",
   });
   res.status(204).end();
 });
 router.post("/public/titles", async (req, res) => {
-  res.set("Access-Control-Allow-Origin", PUBLIC_CORS_ORIGIN);
+  setPublicCors(req, res);
   const text = req.body && typeof req.body.text === "string" ? req.body.text.trim() : "";
   if (!text) return res.status(400).json({ error: "EMPTY_MESSAGE" });
   if (text.length > config.maxInputChars) return res.status(400).json({ error: "MESSAGE_TOO_LONG" });
@@ -87,8 +99,10 @@ router.post("/public/titles", async (req, res) => {
     const lang = String(req.body.lang || "en").toLowerCase();
     const personId = typeof req.body.person_id === "string" ? req.body.person_id : null;
     const seen = Array.isArray(req.body.seen) ? req.body.seen.filter((s) => typeof s === "string").slice(0, 500) : undefined;
-    const cursor = req.body.cursor && typeof req.body.cursor === "object" ? req.body.cursor : undefined;
-    const out = await productList.publicReply(text, lang, { personId, seen, cursor });
+    // one cursor per list the visitor already paged through (key = a `matched` value); see
+    // productList.publicReply for why this can't be a single cursor
+    const cursors = req.body.cursors && typeof req.body.cursors === "object" && !Array.isArray(req.body.cursors) ? req.body.cursors : undefined;
+    const out = await productList.publicReply(text, lang, { personId, seen, cursors });
     res.json(out);
   } catch (error) {
     console.log("[public/titles] failed:", error.message);

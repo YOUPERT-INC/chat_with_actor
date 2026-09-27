@@ -464,14 +464,18 @@ function renderOwnTitles(items, lang) {
 /**
  * @param {string} text the visitor's message
  * @param {string} lang site locale
- * @param {{personId?: string, seen?: string[], cursor?: object}} opts `personId`: the actress
- *   page the widget is on, for an "own titles" request. `seen`: normalised codes (see
- *   src/routes.js recommendedKey) already shown to this visitor, for "own titles" only —
- *   category/plain lists use `cursor` (from a previous call's response) instead.
+ * @param {{personId?: string, seen?: string[], cursors?: Record<string, object>}} opts `personId`:
+ *   the actress page the widget is on, for an "own titles" request. `seen`: normalised codes (see
+ *   src/routes.js recommendedKey) already shown to this visitor, for "own titles" only. `cursors`:
+ *   one cursor per list this visitor has already paged through (key = a `matched` value below,
+ *   value = that reply's `cursor`) — a map, not a single cursor, because which list a message
+ *   matches is only known here, after the fact; the caller keeps the whole map and always sends
+ *   it all, so asking for a different list never applies another list's progress to it by mistake.
  * @returns {Promise<{text: string, links: object[], cursor?: object|null, matched: string|null}>}
  *   `matched`: which list answered ("all"/"uncensored"/"fc2"/"leaked"/"own"), or null for the redirect.
+ *   `cursor` (this reply's only): the caller sets `cursors[matched] = cursor` for the next call.
  */
-async function publicReply(text, lang, { personId, seen, cursor } = {}) {
+async function publicReply(text, lang, { personId, seen, cursors } = {}) {
   if (personId && OWN_WORKS_RE.test(String(text || "").normalize("NFKC"))) {
     const recommended = new Set(Array.isArray(seen) ? seen : []);
     const out = await getOwnTitles({ personId, recommended });
@@ -479,6 +483,7 @@ async function publicReply(text, lang, { personId, seen, cursor } = {}) {
   }
   const listKey = detectList(text);
   if (listKey) {
+    const cursor = cursors && cursors[listKey];
     const conv = cursor ? { product_cursors: { [listKey]: cursor } } : {};
     const out = await buildReply(conv, lang, listKey);
     return { text: out.text, links: out.links, cursor: out.cursor, matched: listKey };

@@ -309,6 +309,30 @@ test("publicReply: a keyword match answers from the catalogue, same as the app's
   assert.ok(out.cursor);
 });
 
+test("publicReply: cursors is a per-list map (a stale cursor from a different list is never applied)", async () => {
+  const all = movies(6); // ABC-100..105, favorite_count 1000..995
+  const fc2 = movies(3, (i) => 500 - i, productList.CATEGORIES.fc2.id).map((m, i) => ({
+    ...m,
+    _id: `fc2_${m._id}`,
+    title: `FC2-${100 + i}`, // distinct from the "all" list's own titles
+  }));
+  fakeCollections([...all, ...fc2]);
+
+  const first = await productList.publicReply("품번 추천", "en", {});
+  assert.strictEqual(first.matched, "all");
+  const cursors = { [first.matched]: first.cursor };
+
+  // continuing the SAME list: picks up after ABC-100..104 (page size 5)
+  const more = await productList.publicReply("give me a product code, more", "en", { cursors });
+  assert.strictEqual(more.matched, "all");
+  assert.ok(!more.text.includes("ABC-100") && !more.text.includes("ABC-104"));
+
+  // a DIFFERENT list (FC2): the "all" cursor must not be applied to it
+  const fc2Reply = await productList.publicReply("FC2 추천", "en", { cursors });
+  assert.strictEqual(fc2Reply.matched, "fc2");
+  assert.ok(fc2Reply.text.includes("FC2-100"), "FC2's own list starts from its own top, unaffected by the 'all' cursor");
+});
+
 test("publicReply: no keyword and no own-works match -> the fixed redirect, no DB call", async () => {
   db.movies = () => { throw new Error("must not be queried"); };
   const out = await productList.publicReply("안녕, 오늘 뭐 해?", "ko", {});

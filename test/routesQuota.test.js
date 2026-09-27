@@ -241,7 +241,12 @@ async function withPublicServer(fn) {
     server.close();
   }
 }
-const postPublic = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+const postPublic = (url, body, origin) =>
+  fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(origin ? { Origin: origin } : {}) },
+    body: JSON.stringify(body),
+  });
 
 test("public/titles needs no login, answers keyword requests, and sets CORS for manko.fun", async () => {
   const rateLimit = require("../src/rateLimit");
@@ -261,12 +266,31 @@ test("public/titles needs no login, answers keyword requests, and sets CORS for 
   db.actresses = () => ({ find: () => ({ toArray: async () => [] }) });
   try {
     await withPublicServer(async (url) => {
-      const r = await postPublic(url, { text: "품번 추천", lang: "ko" }); // no Authorization header at all
+      const r = await postPublic(url, { text: "품번 추천", lang: "ko" }, "https://manko.fun"); // no Authorization header at all
       assert.strictEqual(r.status, 200);
       assert.strictEqual(r.headers.get("access-control-allow-origin"), "https://manko.fun");
       const body = await r.json();
       assert.strictEqual(body.matched, "all");
       assert.ok(body.text.includes("MVSD-1"));
+    });
+  } finally {
+    rateLimit._reset();
+  }
+});
+
+test("public/titles CORS: javclick.com and localhost are allowed too; an unlisted origin gets no CORS header", async () => {
+  const rateLimit = require("../src/rateLimit");
+  rateLimit._reset();
+  try {
+    await withPublicServer(async (url) => {
+      const r1 = await postPublic(url, { text: "hi", lang: "en" }, "https://javclick.com");
+      assert.strictEqual(r1.headers.get("access-control-allow-origin"), "https://javclick.com");
+
+      const r2 = await postPublic(url, { text: "hi", lang: "en" }, "http://localhost:3000");
+      assert.strictEqual(r2.headers.get("access-control-allow-origin"), "http://localhost:3000");
+
+      const r3 = await postPublic(url, { text: "hi", lang: "en" }, "https://evil.example.com");
+      assert.strictEqual(r3.headers.get("access-control-allow-origin"), null);
     });
   } finally {
     rateLimit._reset();
