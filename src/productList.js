@@ -420,16 +420,18 @@ const OWN_WORKS_RE = new RegExp(
 );
 
 // {host}/usecase: download the app + subscribe. Same 9 locales as manko.fun's own site (no Russian there).
+// Casual/informal register (반말), matching the tone of the recommendation replies themselves —
+// not the polite/formal register a first-contact notice would normally use.
 const PUBLIC_REDIRECT = {
-  en: "Chat other than product-code recommendations is only available after installing the app and subscribing to membership. Download the app and subscribe at https://manko.fun/usecase.",
-  ko: "품번 추천 이외의 대화는 앱 설치 후 멤버십 구독시에만 가능합니다. https://manko.fun/usecase에서 앱을 다운받은 후 멤버십을 구독하세요.",
-  ja: "品番のおすすめ以外の会話は、アプリをインストールしてメンバーシップに登録した場合のみご利用いただけます。https://manko.fun/usecase でアプリをダウンロードして登録してください。",
-  zh: "除了番号推荐之外的对话，只有安装应用并订阅会员后才能使用。请在 https://manko.fun/usecase 下载应用并订阅会员。",
-  "zh-tw": "除了番號推薦之外的對話，只有安裝應用程式並訂閱會員後才能使用。請在 https://manko.fun/usecase 下載應用程式並訂閱會員。",
-  id: "Obrolan selain rekomendasi kode produk hanya tersedia setelah menginstal aplikasi dan berlangganan membership. Unduh aplikasinya dan berlangganan di https://manko.fun/usecase.",
-  ms: "Sembang selain cadangan kod produk hanya tersedia selepas memasang aplikasi dan melanggan keahlian. Muat turun aplikasi dan langgan di https://manko.fun/usecase.",
-  th: "การสนทนานอกเหนือจากการแนะนำรหัสสินค้าใช้ได้เฉพาะหลังจากติดตั้งแอปและสมัครสมาชิกเท่านั้น ดาวน์โหลดแอปและสมัครสมาชิกได้ที่ https://manko.fun/usecase",
-  vi: "Trò chuyện ngoài việc gợi ý mã sản phẩm chỉ khả dụng sau khi cài đặt ứng dụng và đăng ký gói thành viên. Tải ứng dụng và đăng ký tại https://manko.fun/usecase.",
+  en: "Chat other than product-code recommendations can only happen after you install the app and subscribe to membership. Download the app first at https://manko.fun/usecase.",
+  ko: "품번 추천 이외의 대화는 앱 설치 후 멤버십을 구독한 다음에 할 수 있어. https://manko.fun/usecase에서 먼저 앱을 다운받아 봐.",
+  ja: "品番のおすすめ以外の会話は、アプリをインストールしてメンバーシップに登録した後にできるよ。https://manko.fun/usecase で先にアプリをダウンロードしてみて。",
+  zh: "除了番号推荐之外的对话，得先装好应用、订阅会员之后才能聊哦。先去 https://manko.fun/usecase 下载应用看看吧。",
+  "zh-tw": "除了番號推薦之外的對話，得先裝好應用、訂閱會員之後才能聊喔。先去 https://manko.fun/usecase 下載應用看看吧。",
+  id: "Ngobrol selain rekomendasi kode produk baru bisa setelah kamu instal aplikasi dan langganan membership. Coba unduh dulu aplikasinya di https://manko.fun/usecase.",
+  ms: "Sembang selain cadangan kod produk baru boleh lepas kau pasang aplikasi dan langgan keahlian. Cuba muat turun dulu aplikasi di https://manko.fun/usecase.",
+  th: "คุยเรื่องอื่นนอกจากแนะนำรหัสสินค้าได้ก็ต่อเมื่อลงแอปแล้วสมัครสมาชิกก่อนนะ ลองโหลดแอปดูที่ https://manko.fun/usecase ก่อนเลย",
+  vi: "Ngoài gợi ý mã sản phẩm ra thì phải cài app với đăng ký gói thành viên rồi mới nói chuyện được nè. Thử tải app ở https://manko.fun/usecase trước đi.",
 };
 PUBLIC_REDIRECT.tw = PUBLIC_REDIRECT["zh-tw"];
 
