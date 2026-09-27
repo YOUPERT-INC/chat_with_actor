@@ -291,3 +291,65 @@ test("getOwnTitles: a duplicate copy of an already-recommended code is skipped t
   const out = await productList.getOwnTitles({ personId: "p1", recommended }, 3);
   assert.deepStrictEqual(out.items.map((i) => i.title), ["ABC-101", "ABC-102", "ABC-103"]);
 });
+
+// ---- public (unauthenticated) endpoint for manko.fun ------------------------------------------
+
+test("PUBLIC_REDIRECT: all 9 site locales present (incl. tw alias), each mentions the URL", () => {
+  for (const lang of ["en", "ko", "ja", "zh", "zh-tw", "tw", "id", "ms", "th", "vi"]) {
+    assert.ok(productList.PUBLIC_REDIRECT[lang], lang);
+    assert.ok(productList.PUBLIC_REDIRECT[lang].includes("https://manko.fun/usecase"), lang);
+  }
+});
+
+test("publicReply: a keyword match answers from the catalogue, same as the app's own flow", async () => {
+  fakeCollections(movies(2));
+  const out = await productList.publicReply("품번 추천", "ko", {});
+  assert.strictEqual(out.matched, "all");
+  assert.ok(out.text.includes("ABC-100"));
+  assert.ok(out.cursor);
+});
+
+test("publicReply: no keyword and no own-works match -> the fixed redirect, no DB call", async () => {
+  db.movies = () => { throw new Error("must not be queried"); };
+  const out = await productList.publicReply("안녕, 오늘 뭐 해?", "ko", {});
+  assert.strictEqual(out.matched, null);
+  assert.strictEqual(out.text, productList.PUBLIC_REDIRECT.ko);
+  assert.deepStrictEqual(out.links, []);
+});
+
+test("publicReply: 'own works' phrasing only answers when a person_id (page context) is given", async () => {
+  const hers = movies(3).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
+  fakeCollections(hers);
+  const withPage = await productList.publicReply("니가 나온 작품 추천해줘", "ko", { personId: "p1" });
+  assert.strictEqual(withPage.matched, "own");
+  assert.ok(withPage.text.includes("ABC-100"));
+  assert.strictEqual(withPage.links[0].movie_id, "id000");
+
+  const noPage = await productList.publicReply("니가 나온 작품 추천해줘", "ko", {});
+  assert.strictEqual(noPage.matched, null, "no page context: falls through to the redirect");
+});
+
+test("publicReply: 'own works' honours `seen` (stateless caller-side dedupe), same as the app's context.recommended", async () => {
+  const hers = movies(6).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
+  fakeCollections(hers);
+  const out = await productList.publicReply("your own titles please", "en", { personId: "p1", seen: ["av:abc100", "av:abc101"] });
+  assert.deepStrictEqual(out.links.map((l) => l.title), ["ABC-102", "ABC-103", "ABC-104", "ABC-105"]);
+});
+
+test("OWN_WORKS_RE: a representative phrase from each site locale matches; unrelated chat does not", () => {
+  for (const text of [
+    "니가 나온 작품 뭐 있어?", "네 작품 추천해줘",
+    "あなたが出演した作品は？",
+    "你出演的作品有哪些",
+    "what are your own titles?", "you're in this one?",
+    "kamu bintangi film apa",
+    "awak bintangi filem apa",
+    "คุณแสดงเรื่องอะไรบ้าง",
+    "bạn đóng phim nào",
+  ]) {
+    assert.ok(productList.OWN_WORKS_RE.test(text), text);
+  }
+  for (const text of ["오늘 날씨 어때?", "recommend a movie", "품번 추천"]) {
+    assert.ok(!productList.OWN_WORKS_RE.test(text), text);
+  }
+});

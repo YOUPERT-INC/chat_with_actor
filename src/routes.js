@@ -2,7 +2,8 @@ const express = require("express");
 const { ObjectId } = require("mongoose").Types;
 const config = require("./config");
 const db = require("./db");
-const { requireUser, membershipActive } = require("./auth");
+const { requireUser, membershipActive, isLifetime } = require("./auth");
+const rateLimit = require("./rateLimit");
 const { getPersona, promptFor, prewarmCard, languageNote } = require("./persona");
 const { trimToLastSentence } = require("./text");
 const deepseek = require("./deepseek");
@@ -20,6 +21,7 @@ const router = express.Router();
 const sending = new Set(); // conversation ids with a model call in flight (one at a time)
 
 const dayKey = () => new Date().toISOString().slice(0, 10);
+const monthKey = () => new Date().toISOString().slice(0, 7);
 
 function toConversation(c, req) {
   return {
@@ -60,6 +62,39 @@ async function ownConversation(req, res) {
 }
 
 router.get("/health", (req, res) => res.json({ ok: true }));
+
+// Public, unauthenticated: manko.fun's product-code-only chat widget (no login there, and it can't
+// call the M API). No model call, ever — see productList.publicReply — so no message quota applies;
+// only the request-rate limit, keyed by IP since there is no account.
+const PUBLIC_CORS_ORIGIN = "https://manko.fun";
+router.options("/public/titles", (req, res) => {
+  res.set({
+    "Access-Control-Allow-Origin": PUBLIC_CORS_ORIGIN,
+    "Access-Control-Allow-Methods": "POST",
+    "Access-Control-Allow-Headers": "Content-Type",
+  });
+  res.status(204).end();
+});
+router.post("/public/titles", async (req, res) => {
+  res.set("Access-Control-Allow-Origin", PUBLIC_CORS_ORIGIN);
+  const text = req.body && typeof req.body.text === "string" ? req.body.text.trim() : "";
+  if (!text) return res.status(400).json({ error: "EMPTY_MESSAGE" });
+  if (text.length > config.maxInputChars) return res.status(400).json({ error: "MESSAGE_TOO_LONG" });
+  if (!rateLimit.allow(`public:${req.ip}`, rateLimit.PRODUCT_LIST_LIMITS)) {
+    return res.status(429).json({ error: "RATE_LIMITED" });
+  }
+  try {
+    const lang = String(req.body.lang || "en").toLowerCase();
+    const personId = typeof req.body.person_id === "string" ? req.body.person_id : null;
+    const seen = Array.isArray(req.body.seen) ? req.body.seen.filter((s) => typeof s === "string").slice(0, 500) : undefined;
+    const cursor = req.body.cursor && typeof req.body.cursor === "object" ? req.body.cursor : undefined;
+    const out = await productList.publicReply(text, lang, { personId, seen, cursor });
+    res.json(out);
+  } catch (error) {
+    console.log("[public/titles] failed:", error.message);
+    res.status(502).json({ error: "UNAVAILABLE" });
+  }
+});
 
 router.use(requireUser);
 
@@ -140,7 +175,8 @@ router.get("/conversations/:id/messages", async (req, res, next) => {
 router.post("/conversations/:id/messages", async (req, res, next) => {
   let convId = null;
   let locked = false;
-  let charged = false;
+  let charged = false; // a message-quota counter was incremented (product-code requests never charge one)
+  let chargedLifetime = false; // which counter(s) `charged` refers to, for the refund in the catch block
   let modelCalled = false;
   try {
     const conv = await ownConversation(req, res);
@@ -158,24 +194,18 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
     const persona = await getPersona(conv.person_id);
     if (!persona) return res.status(409).json({ error: "NO_PROFILE" });
 
-    // Daily cap per user; counted before the model call so parallel requests can't slip past.
-    const usage = await db.usage().findOneAndUpdate(
-      { user: req.user.email, day: dayKey() },
-      { $inc: { count: 1 }, $setOnInsert: { created_at: new Date() } },
-      { upsert: true, returnDocument: "after" }
-    );
-    charged = true;
-    if (usage.value.count > config.dailyMessageLimit) {
-      return res.status(429).json({ error: "DAILY_LIMIT", limit: config.dailyMessageLimit });
-    }
-
     sending.add(convId);
     locked = true;
 
-    // "품번" (product code) / category keyword request: a fixed template + the next titles of that list, no model call.
-    // These two messages are flagged `template` and left out of what the model sees later.
+    // "품번" (product code) / category keyword request: a fixed template + the next titles of that
+    // list, no model call — so it never counts against the message quotas below (those exist only
+    // to bound DeepSeek cost). A flood of these costs no tokens but still costs server time and
+    // could scrape the catalogue, so it gets its own request-rate limit instead.
     const listKey = productList.detectList(text);
     if (listKey) {
+      if (!rateLimit.allow(`product:${req.user.email}`, rateLimit.PRODUCT_LIST_LIMITS)) {
+        return res.status(429).json({ error: "RATE_LIMITED" });
+      }
       const out = await productList.buildReply(conv, String(req.body.lang || "en").toLowerCase(), listKey);
       const at = new Date();
       const saved = await db.messages().insertMany([
@@ -196,12 +226,55 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
           $inc: { message_count: 2 },
         }
       );
-      charged = false; // succeeded: the count stands
       return res.json({
         user_message: toMessage({ _id: saved.insertedIds[0], role: "user", content: text, created_at: at }),
         reply: toMessage({ _id: saved.insertedIds[1], role: "assistant", content: out.text, created_at: at, links: out.links }),
       });
     }
+
+    // Real chat from here: the tiered quota, charged before the model call so parallel requests
+    // can't slip past. Lifetime membership = one running total that never resets (a one-time
+    // purchase can't fund an unbounded daily/monthly allowance); everyone else = a daily AND a
+    // calendar-month cap.
+    chargedLifetime = isLifetime(req.user);
+    let quotaError = null;
+    if (chargedLifetime) {
+      const usage = await db
+        .usageLifetime()
+        .findOneAndUpdate(
+          { user: req.user.email },
+          { $inc: { count: 1 }, $setOnInsert: { created_at: new Date() } },
+          { upsert: true, returnDocument: "after" }
+        );
+      charged = true;
+      if (usage.value.count > config.lifetimeMessageLimit) {
+        quotaError = { error: "LIFETIME_LIMIT", limit: config.lifetimeMessageLimit };
+      }
+    } else {
+      const [daily, monthly] = await Promise.all([
+        db
+          .usage()
+          .findOneAndUpdate(
+            { user: req.user.email, day: dayKey() },
+            { $inc: { count: 1 }, $setOnInsert: { created_at: new Date() } },
+            { upsert: true, returnDocument: "after" }
+          ),
+        db
+          .usageMonth()
+          .findOneAndUpdate(
+            { user: req.user.email, month: monthKey() },
+            { $inc: { count: 1 }, $setOnInsert: { created_at: new Date() } },
+            { upsert: true, returnDocument: "after" }
+          ),
+      ]);
+      charged = true;
+      if (daily.value.count > config.dailyMessageLimit) {
+        quotaError = { error: "DAILY_LIMIT", limit: config.dailyMessageLimit };
+      } else if (monthly.value.count > config.monthlyMessageLimit) {
+        quotaError = { error: "MONTHLY_LIMIT", limit: config.monthlyMessageLimit };
+      }
+    }
+    if (quotaError) return res.status(429).json(quotaError);
     const recent = await db
       .messages()
       .find({ conversation_id: conv._id })
@@ -313,9 +386,15 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
   } catch (error) {
     // Give the message back only if DeepSeek surely didn't bill it: we never called it, or it
     // answered with an HTTP error. A timeout or an empty reply was still paid for, so it keeps
-    // counting toward the daily cap (otherwise retries after failures would be unlimited).
+    // counting toward the quota (otherwise retries after failures would be unlimited).
     if (charged && (!modelCalled || error.response)) {
-      db.usage().updateOne({ user: req.user.email, day: dayKey() }, { $inc: { count: -1 } }).catch(() => {});
+      const refund = chargedLifetime
+        ? db.usageLifetime().updateOne({ user: req.user.email }, { $inc: { count: -1 } })
+        : Promise.all([
+            db.usage().updateOne({ user: req.user.email, day: dayKey() }, { $inc: { count: -1 } }),
+            db.usageMonth().updateOne({ user: req.user.email, month: monthKey() }, { $inc: { count: -1 } }),
+          ]);
+      Promise.resolve(refund).catch(() => {});
     }
     console.log("[send] failed:", error.message);
     if (!res.headersSent) {

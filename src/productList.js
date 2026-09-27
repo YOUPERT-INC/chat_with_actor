@@ -395,6 +395,97 @@ async function getOwnTitles(context, count = OWN_TITLES_COUNT) {
   return { items, ...(skipped ? { note: "Titles already recommended in this chat were left out; these are all new." } : {}) };
 }
 
+// ---- public (unauthenticated) product-code endpoint, for manko.fun --------------------------
+//
+// manko.fun has no login and cannot call the M API (family-friendly), so its chat is product-code
+// recommendations only: no model call, ever. A keyword match answers from the catalogue exactly
+// like the app's own feature above; anything else gets a fixed redirect to the app + membership.
+// The endpoint itself is stateless (routes.js writes nothing to a conversation for it): `seen`
+// (own-titles) / `cursor` (a list) are round-tripped by the caller instead of stored server-side.
+
+// best-effort, not exhaustive (same limits as PRODUCT_CODE_RE above): "your own titles" in the
+// languages manko.fun ships (see i18n-config.ts in manko-nextjs / new_manko)
+const OWN_WORKS_RE = new RegExp(
+  [
+    "니가?\\s*나온", "네가?\\s*나온", "니\\s*작품", "네\\s*작품", "출연작",
+    "あなたが?出演", "君が?出演", "自分の出演作",
+    "你出演", "你的作品", "妳出演", "妳的作品",
+    "your\\s+(own\\s+)?(titles?|works?)", "(you're|you are)\\s+in", "starred\\s+in",
+    "kamu\\s*bintangi", "film\\s*kamu",
+    "awak\\s*bintangi",
+    "คุณแสดง", "ผลงานคุณ",
+    "bạn\\s*đóng", "phim\\s*của\\s*bạn",
+  ].join("|"),
+  "i"
+);
+
+// {host}/usecase: download the app + subscribe. Same 9 locales as manko.fun's own site (no Russian there).
+const PUBLIC_REDIRECT = {
+  en: "Chat other than product-code recommendations is only available after installing the app and subscribing to membership. Download the app and subscribe at https://manko.fun/usecase.",
+  ko: "품번 추천 이외의 대화는 앱 설치 후 멤버십 구독시에만 가능합니다. https://manko.fun/usecase에서 앱을 다운받은 후 멤버십을 구독하세요.",
+  ja: "品番のおすすめ以外の会話は、アプリをインストールしてメンバーシップに登録した場合のみご利用いただけます。https://manko.fun/usecase でアプリをダウンロードして登録してください。",
+  zh: "除了番号推荐之外的对话，只有安装应用并订阅会员后才能使用。请在 https://manko.fun/usecase 下载应用并订阅会员。",
+  "zh-tw": "除了番號推薦之外的對話，只有安裝應用程式並訂閱會員後才能使用。請在 https://manko.fun/usecase 下載應用程式並訂閱會員。",
+  id: "Obrolan selain rekomendasi kode produk hanya tersedia setelah menginstal aplikasi dan berlangganan membership. Unduh aplikasinya dan berlangganan di https://manko.fun/usecase.",
+  ms: "Sembang selain cadangan kod produk hanya tersedia selepas memasang aplikasi dan melanggan keahlian. Muat turun aplikasi dan langgan di https://manko.fun/usecase.",
+  th: "การสนทนานอกเหนือจากการแนะนำรหัสสินค้าใช้ได้เฉพาะหลังจากติดตั้งแอปและสมัครสมาชิกเท่านั้น ดาวน์โหลดแอปและสมัครสมาชิกได้ที่ https://manko.fun/usecase",
+  vi: "Trò chuyện ngoài việc gợi ý mã sản phẩm chỉ khả dụng sau khi cài đặt ứng dụng và đăng ký gói thành viên. Tải ứng dụng và đăng ký tại https://manko.fun/usecase.",
+};
+PUBLIC_REDIRECT.tw = PUBLIC_REDIRECT["zh-tw"];
+
+const redirectFor = (lang) => PUBLIC_REDIRECT[lang] || PUBLIC_REDIRECT.en;
+
+/** Renders getOwnTitles' raw items the same way buildReply renders a list: text + links. */
+function renderOwnTitles(items, lang) {
+  const t = textFor(lang);
+  if (!items.length) return { text: t.none, links: [] };
+  let text = t.intro;
+  const links = [];
+  for (const m of items) {
+    text += "\n";
+    const start = text.length;
+    text += m.title;
+    const end = text.length;
+    if (m.year) text += ` (${m.year})`;
+    links.push({
+      start,
+      end,
+      title: m.title,
+      movie_id: m.movie_id,
+      type: "av",
+      ...(m.year ? { year: m.year } : {}),
+      ...(m.thumbnail ? { thumbnail: m.thumbnail } : {}),
+      ...(m.cover ? { cover: m.cover } : {}),
+    });
+  }
+  return { text, links };
+}
+
+/**
+ * @param {string} text the visitor's message
+ * @param {string} lang site locale
+ * @param {{personId?: string, seen?: string[], cursor?: object}} opts `personId`: the actress
+ *   page the widget is on, for an "own titles" request. `seen`: normalised codes (see
+ *   src/routes.js recommendedKey) already shown to this visitor, for "own titles" only —
+ *   category/plain lists use `cursor` (from a previous call's response) instead.
+ * @returns {Promise<{text: string, links: object[], cursor?: object|null, matched: string|null}>}
+ *   `matched`: which list answered ("all"/"uncensored"/"fc2"/"leaked"/"own"), or null for the redirect.
+ */
+async function publicReply(text, lang, { personId, seen, cursor } = {}) {
+  if (personId && OWN_WORKS_RE.test(String(text || "").normalize("NFKC"))) {
+    const recommended = new Set(Array.isArray(seen) ? seen : []);
+    const out = await getOwnTitles({ personId, recommended });
+    return { ...renderOwnTitles(out.items, lang), matched: "own" };
+  }
+  const listKey = detectList(text);
+  if (listKey) {
+    const conv = cursor ? { product_cursors: { [listKey]: cursor } } : {};
+    const out = await buildReply(conv, lang, listKey);
+    return { text: out.text, links: out.links, cursor: out.cursor, matched: listKey };
+  }
+  return { text: redirectFor(lang), links: [], matched: null };
+}
+
 const _resetIndexCheck = () => indexState.clear();
 
 module.exports = {
@@ -403,6 +494,9 @@ module.exports = {
   buildReply,
   getOwnTitles,
   normCode,
+  publicReply,
+  OWN_WORKS_RE,
+  PUBLIC_REDIRECT,
   PAGE_SIZE,
   TEXT,
   LABELS,

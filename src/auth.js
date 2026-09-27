@@ -17,6 +17,7 @@
  */
 const crypto = require("crypto");
 const axios = require("axios");
+const config = require("./config");
 
 // Same values as the app's defaultAuthUrl / backupAuthUrl. Tried in order.
 const ACCOUNT_HOSTS = ["apiplayer.app", "api.flix1.net"];
@@ -126,4 +127,11 @@ async function membershipActive(req) {
   return fresh.subExpiresAt > Date.now();
 }
 
-module.exports = { requireUser, membershipActive, _setFetchProfile };
+const YEAR_MS = 365.25 * 24 * 3600 * 1000;
+
+/** "Lifetime" membership: at least `lifetimeThresholdYears` still left on the balance. */
+function isLifetime(user) {
+  return user.subExpiresAt - Date.now() >= config.lifetimeThresholdYears * YEAR_MS;
+}
+
+module.exports = { requireUser, membershipActive, isLifetime, _setFetchProfile };

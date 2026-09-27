@@ -68,3 +68,17 @@ test("a client-supplied x-auth-host header is ignored", async () => {
   });
   assert.deepStrictEqual(hosts, ["apiplayer.app"]);
 });
+
+// ---- isLifetime (membership balance >= lifetimeThresholdYears -> lifetime message quota) -----
+
+const { isLifetime } = require("../src/auth");
+const YEAR_MS = 365.25 * 24 * 3600 * 1000;
+
+test("isLifetime: the 100-year grant clears the (default 10-year) threshold; ordinary plans don't", () => {
+  const now = Date.now();
+  assert.strictEqual(isLifetime({ subExpiresAt: now + 100 * YEAR_MS }), true, "lifetime grant");
+  assert.strictEqual(isLifetime({ subExpiresAt: now + 10 * YEAR_MS + 1000 }), true, "just over the threshold");
+  assert.strictEqual(isLifetime({ subExpiresAt: now + 10 * YEAR_MS - 1000 }), false, "just under the threshold");
+  assert.strictEqual(isLifetime({ subExpiresAt: now + 12 * 30 * 24 * 3600 * 1000 }), false, "12-month plan");
+  assert.strictEqual(isLifetime({ subExpiresAt: now - 1000 }), false, "expired");
+});

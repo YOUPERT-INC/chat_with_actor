@@ -12,7 +12,17 @@ module.exports = {
   deepseekKey: process.env.DEEPSEEK_API_KEY || "",
   deepseekModel: process.env.DEEPSEEK_MODEL || "deepseek-flash",
   deepseekUrl: "https://api.deepseek.com/chat/completions",
-  dailyMessageLimit: int(process.env.DAILY_MESSAGE_LIMIT, 200),
+  // Paid, time-limited membership (12/6/3/1-month plans): a daily AND a calendar-month cap.
+  // Product-code ("품번") requests cost no DeepSeek tokens (src/productList.js answers them without
+  // calling the model) and are never counted against either of these — see src/rateLimit.js instead.
+  dailyMessageLimit: int(process.env.DAILY_MESSAGE_LIMIT, 15),
+  monthlyMessageLimit: int(process.env.MONTHLY_MESSAGE_LIMIT, 300),
+  // "Lifetime" membership: a one-time purchase, so a daily/monthly cap that resets forever would be
+  // an unbounded liability against a payment collected once. Instead: a single lifetime total.
+  // Detected as membership balance >= this many years left (see src/auth.js isLifetime) — the
+  // lifetime plan grants 100 years at purchase, so this only mis-tags a very long ordinary plan.
+  lifetimeThresholdYears: int(process.env.LIFETIME_THRESHOLD_YEARS, 10),
+  lifetimeMessageLimit: int(process.env.LIFETIME_MESSAGE_LIMIT, 3600),
   maxInputChars: int(process.env.MAX_INPUT_CHARS, 1000),
   historyMessages: int(process.env.HISTORY_MESSAGES, 30),
   // chat is limited to actresses whose Korean description is long enough to build a persona

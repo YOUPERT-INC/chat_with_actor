@@ -4,7 +4,9 @@ const config = require("./config");
 // Collections written by this service. actress_new and movie are only ever read.
 const CONVERSATIONS = "actor_chat_conversations";
 const MESSAGES = "actor_chat_messages";
-const USAGE = "actor_chat_usage";
+const USAGE = "actor_chat_usage"; // daily, time-limited membership only
+const USAGE_MONTH = "actor_chat_usage_month"; // calendar-month, time-limited membership only
+const USAGE_LIFETIME = "actor_chat_usage_lifetime"; // one running total per user, never reset
 const CARDS = "actor_persona_cards";
 const HUMOR = "actor_humor_posts";
 const FACTS = "actor_verified_facts";
@@ -17,6 +19,8 @@ async function connect() {
   await db.collection(CONVERSATIONS).createIndex({ user: 1, last_message_at: -1 });
   await db.collection(MESSAGES).createIndex({ conversation_id: 1, _id: -1 });
   await db.collection(USAGE).createIndex({ user: 1, day: 1 }, { unique: true });
+  await db.collection(USAGE_MONTH).createIndex({ user: 1, month: 1 }, { unique: true });
+  await db.collection(USAGE_LIFETIME).createIndex({ user: 1 }, { unique: true });
   await db.collection(CARDS).createIndex({ person_id: 1 }, { unique: true });
   await db.collection(FACTS).createIndex({ person_id: 1 }, { unique: true });
   await db.collection(HUMOR).createIndex({ source: 1, post_id: 1 }, { unique: true });
@@ -24,8 +28,9 @@ async function connect() {
   await db.collection(HUMOR).createIndex({ source: 1, first_seen: -1, views: -1 });
   // only recent posts are ever offered
   await db.collection(HUMOR).createIndex({ first_seen: 1 }, { expireAfterSeconds: 7 * 24 * 3600 });
-  // usage rows are only needed for the current day
+  // usage rows are only needed for the current day / month; the lifetime total is kept forever
   await db.collection(USAGE).createIndex({ created_at: 1 }, { expireAfterSeconds: 3 * 24 * 3600 });
+  await db.collection(USAGE_MONTH).createIndex({ created_at: 1 }, { expireAfterSeconds: 40 * 24 * 3600 });
   return db;
 }
 
@@ -36,6 +41,8 @@ module.exports = {
   conversations: () => col(CONVERSATIONS),
   messages: () => col(MESSAGES),
   usage: () => col(USAGE),
+  usageMonth: () => col(USAGE_MONTH),
+  usageLifetime: () => col(USAGE_LIFETIME),
   cards: () => col(CARDS),
   verifiedFacts: () => col(FACTS),
   humorPosts: () => col(HUMOR),
