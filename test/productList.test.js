@@ -258,7 +258,7 @@ test("getOwnTitles: no personId (context not wired to a conversation) is empty, 
 test("getOwnTitles: titles already recommended in this chat are skipped, with a note; enough slack to still fill up", async () => {
   const hers = movies(8).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
   fakeCollections(hers);
-  const recommended = new Set(["av:id000", "av:id001", "av:id002"]); // the 3 most-favourited
+  const recommended = new Set(["av:abc100", "av:abc101", "av:abc102"]); // the 3 most-favourited
   const out = await productList.getOwnTitles({ personId: "p1", recommended }, 5);
   assert.deepStrictEqual(out.items.map((i) => i.title), ["ABC-103", "ABC-104", "ABC-105", "ABC-106", "ABC-107"]);
   assert.match(out.note, /already recommended/);
@@ -267,8 +267,27 @@ test("getOwnTitles: titles already recommended in this chat are skipped, with a 
 test("getOwnTitles: everything already recommended returns fewer (or none), never a repeat", async () => {
   const hers = movies(3).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
   fakeCollections(hers);
-  const recommended = new Set(["av:id000", "av:id001", "av:id002"]);
+  const recommended = new Set(["av:abc100", "av:abc101", "av:abc102"]);
   const out = await productList.getOwnTitles({ personId: "p1", recommended }, 5);
   assert.deepStrictEqual(out.items, []);
   assert.match(out.note, /already recommended/);
+});
+
+test("getOwnTitles: the same code stored twice (regular + mosaic-removed/leaked copy) counts once, higher-favourited copy kept", async () => {
+  const hers = movies(4).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
+  // a lower-favourited duplicate of the top title, under a different category/document
+  const dup = { ...hers[0], _id: "dup000", favorite_count: hers[0].favorite_count - 1, category_id: "leaked" };
+  fakeCollections([...hers, dup]);
+  const out = await productList.getOwnTitles({ personId: "p1" }, 3);
+  assert.deepStrictEqual(out.items.map((i) => i.title), ["ABC-100", "ABC-101", "ABC-102"]);
+  assert.strictEqual(out.items[0].movie_id, hers[0]._id, "kept the higher-favourited copy, not the duplicate");
+});
+
+test("getOwnTitles: a duplicate copy of an already-recommended code is skipped too (not a fresh one)", async () => {
+  const hers = movies(4).map((m) => ({ ...m, actress: [{ person_id: "p1", name: "本人" }] }));
+  const dup = { ...hers[0], _id: "dup000", favorite_count: hers[0].favorite_count - 1, category_id: "leaked" };
+  fakeCollections([dup, ...hers]); // the duplicate happens to sort first in this fake's tie-break
+  const recommended = new Set(["av:abc100"]); // "ABC-100" already shown, from either copy
+  const out = await productList.getOwnTitles({ personId: "p1", recommended }, 3);
+  assert.deepStrictEqual(out.items.map((i) => i.title), ["ABC-101", "ABC-102", "ABC-103"]);
 });

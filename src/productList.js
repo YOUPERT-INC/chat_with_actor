@@ -335,12 +335,19 @@ async function buildReply(conv, lang, list = "all") {
 
 const OWN_TITLES_COUNT = 5;
 
+// The same product code often exists as two documents (a regular one and a "mosaic removed" /
+// leaked one, same title, different category_id and favorite_count) — same as "SSIS-698" showing
+// up under both id, but as one title to a user. Titles are deduplicated by this normalised code
+// (case, spacing and punctuation ignored), keeping the higher-favourited copy (rows arrive sorted
+// by favorite_count already, so the first one seen per code is that copy).
+const normCode = (s) => String(s || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+
 /**
  * Her own most-favourited titles, for the get_own_titles tool. `context.personId` is the
  * conversation's actress: fixed server-side, so the model has no way to point this at anyone
  * else. Titles already recommended in this conversation (`context.recommended`, key
- * "av:<movie id>", shared with get_titles' movie/TV keys and with the ones plain product-code
- * replies already sent) are skipped.
+ * "av:<normalised product code>", shared with get_titles' movie/TV keys and with the ones plain
+ * product-code replies already sent) are skipped.
  *
  * Relies on the same `actress.person_id` index the X API's own `/swx/movie/search?person_id=`
  * uses (see swipex_nodejs): one actress's titles are few, so no dedicated favorite_count index
@@ -358,14 +365,20 @@ async function getOwnTitles(context, count = OWN_TITLES_COUNT) {
       { projection: { title: 1, share_date: 1, thumbnail: 1, cover_url: 1, favorite_count: 1 } }
     )
     .sort({ favorite_count: -1, _id: -1 })
-    .limit(Math.min(count * 6, 60)) // enough slack to skip past ones already recommended
+    // generous headroom: about half of one actress's rows can be a duplicate-category copy of
+    // an already-counted code, on top of ones already recommended in this conversation
+    .limit(Math.min(count * 12, 120))
     .toArray();
 
   let skipped = 0;
+  const seenCodes = new Set();
   const items = [];
   for (const m of rows) {
     if (items.length >= count) break;
-    if (seen.has(`av:${m._id}`)) {
+    const code = normCode(m.title);
+    if (!code || seenCodes.has(code)) continue; // the lower-favourited duplicate copy
+    seenCodes.add(code);
+    if (seen.has(`av:${code}`)) {
       skipped++;
       continue;
     }
@@ -389,6 +402,7 @@ module.exports = {
   wantsProductList,
   buildReply,
   getOwnTitles,
+  normCode,
   PAGE_SIZE,
   TEXT,
   LABELS,
