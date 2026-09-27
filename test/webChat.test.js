@@ -163,6 +163,17 @@ test("POST /web/conversations needs login", async () => {
   });
 });
 
+test("a rejected/bad token still carries the CORS header on the 401 — otherwise the browser hides the response and the caller only ever sees an opaque network failure", async () => {
+  setUp();
+  await withServer(async (url) => {
+    const r = await fetch(`${url}/web/conversations`, {
+      headers: { Authorization: "Bearer bad-token", Origin: "https://manko.fun" },
+    });
+    assert.strictEqual(r.status, 401);
+    assert.strictEqual(r.headers.get("access-control-allow-origin"), "https://manko.fun");
+  });
+});
+
 test("preflight OPTIONS is answered before requireUser (no Authorization needed)", async () => {
   setUp();
   await withServer(async (url) => {

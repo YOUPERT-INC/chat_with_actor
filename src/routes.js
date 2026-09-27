@@ -142,6 +142,15 @@ router.options(["/web/conversations", "/web/conversations/:id/messages", "/web/c
   });
   res.status(204).end();
 });
+// The real (non-preflight) /web/* request also needs the header on WHATEVER response comes back —
+// including a 401 from requireUser below, which runs before any /web handler's own setPublicCors
+// call ever gets a chance to run. Without this, a rejected or expired token doesn't read back to
+// the browser as LOGIN_REQUIRED: the missing CORS header makes the browser hide the response
+// entirely, and manko.fun/javclick.com just sees an opaque "failed to fetch".
+router.use("/web", (req, res, next) => {
+  setPublicCors(req, res);
+  next();
+});
 
 router.use(requireUser);
 
