@@ -145,7 +145,14 @@ test("time-limited member: the monthly cap (300) blocks even while under the dai
   await withServer(async (url) => {
     const r = await send(url, "hi"); // 1st message of a fresh day, but the month is already at 300
     assert.strictEqual(r.status, 429);
-    assert.deepStrictEqual(await r.json(), { error: "MONTHLY_LIMIT", limit: 300 });
+    const body = await r.json();
+    assert.strictEqual(body.error, "MONTHLY_LIMIT");
+    assert.strictEqual(body.limit, 300);
+    const resetAt = new Date(body.reset_at);
+    const now = new Date();
+    assert.strictEqual(resetAt.getUTCDate(), 1, "resets on the 1st");
+    assert.ok(resetAt.getTime() > now.getTime(), "is in the future");
+    assert.ok(resetAt.getTime() - now.getTime() < 32 * 24 * 3600 * 1000, "within the next month, not further out");
   });
 });
 
@@ -226,6 +233,50 @@ test("a model failure refunds the counter it charged (lifetime, and daily+monthl
     assert.strictEqual(r.status, 502);
   });
   assert.strictEqual(lifetime.rows.get(JSON.stringify({ user: "u@x.com" })), 0, "charged then refunded back to 0");
+});
+
+test("a pure recommendation reply (bare title list, nothing else mixed in) is refunded", async () => {
+  const lifetime = fakeCounter();
+  setUp({
+    subExpiresAt: inYears(90),
+    lifetime,
+    converse: async (messages, { context }) => {
+      context.knownTitles.push({ title: "MVSD-1", type: "av", movie_id: "mv1" });
+      return { text: "⟦MVSD-1⟧", finishReason: "stop" };
+    },
+  });
+  await withServer(async (url) => {
+    const r = await send(url, "너 출연작 알려줘");
+    assert.strictEqual(r.status, 200);
+  });
+  assert.strictEqual(lifetime.rows.get(JSON.stringify({ user: "u@x.com" })), 0, "charged then refunded: a bare title list doesn't count");
+});
+
+test("a recommendation with even a little commentary mixed in still counts against the quota", async () => {
+  const lifetime = fakeCounter();
+  setUp({
+    subExpiresAt: inYears(90),
+    lifetime,
+    converse: async (messages, { context }) => {
+      context.knownTitles.push({ title: "MVSD-1", type: "av", movie_id: "mv1" });
+      return { text: "Here's one I love: ⟦MVSD-1⟧", finishReason: "stop" };
+    },
+  });
+  await withServer(async (url) => {
+    const r = await send(url, "너 출연작 알려줘");
+    assert.strictEqual(r.status, 200);
+  });
+  assert.strictEqual(lifetime.rows.get(JSON.stringify({ user: "u@x.com" })), 1, "commentary mixed in: the charge stands");
+});
+
+test("a plain chat reply with no titles at all is charged as usual", async () => {
+  const lifetime = fakeCounter();
+  setUp({ subExpiresAt: inYears(90), lifetime, converse: async () => ({ text: "hi there!", finishReason: "stop" }) });
+  await withServer(async (url) => {
+    const r = await send(url, "hi");
+    assert.strictEqual(r.status, 200);
+  });
+  assert.strictEqual(lifetime.rows.get(JSON.stringify({ user: "u@x.com" })), 1, "no recommendation at all: the charge stands");
 });
 
 // ---- GET /public/titles (manko.fun, no auth) --------------------------------------------------

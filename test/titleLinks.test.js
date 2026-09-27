@@ -1,6 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert");
-const { extractTitleLinks, applyMarkers, stripMarkers, keepOpenable } = require("../src/titleLinks");
+const { extractTitleLinks, applyMarkers, stripMarkers, keepOpenable, isBareTitleList } = require("../src/titleLinks");
 
 test("markers become offsets and disappear from the text", () => {
   const { text, links } = extractTitleLinks("추천: ⟦오디세이⟧ (2026), 그리고 ⟦기생충⟧도 좋아요.");
@@ -76,4 +76,24 @@ test("keepOpenable also keeps a movie_id-only link (her own titles have no TMDB/
     { start: 3, end: 5, title: "Written from memory", year: 2001, type: "av" },
   ]);
   assert.deepStrictEqual(kept.map((l) => l.title), ["A"]);
+});
+
+test("isBareTitleList: a numbered/bulleted list of titles, with year suffixes, is bare", () => {
+  const { text, links } = extractTitleLinks("1. ⟦MVSD-1⟧ (2024)\n2. ⟦MVSD-2⟧");
+  assert.strictEqual(isBareTitleList(text, keepOpenable(links.map((l) => ({ ...l, movie_id: "id" })))), true);
+});
+
+test("isBareTitleList: any commentary mixed in front, between or after the titles is not bare", () => {
+  const known = [{ title: "MVSD-1", movie_id: "id1" }];
+  const cases = ["Here's one: ⟦MVSD-1⟧", "⟦MVSD-1⟧ is my favorite!", "⟦MVSD-1⟧ and also this one"];
+  for (const raw of cases) {
+    const { text, links } = extractTitleLinks(raw, known);
+    assert.strictEqual(isBareTitleList(text, keepOpenable(links)), false, raw);
+  }
+});
+
+test("isBareTitleList: no links at all, or an untrusted (non-openable) title, is never bare", () => {
+  assert.strictEqual(isBareTitleList("hi there", []), false);
+  const { text, links } = extractTitleLinks("⟦Some Unverified Title⟧");
+  assert.strictEqual(isBareTitleList(text, keepOpenable(links)), false, "the hallucinated title text itself counts as commentary");
 });

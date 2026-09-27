@@ -22,6 +22,26 @@ const sending = new Set(); // conversation ids with a model call in flight (one 
 
 const dayKey = () => new Date().toISOString().slice(0, 10);
 const monthKey = () => new Date().toISOString().slice(0, 7);
+// when the calendar-month cap next resets (the 1st of next month, UTC, 00:00) — sent with
+// MONTHLY_LIMIT so the app can tell the user the exact date instead of just "next month"
+const nextMonthStart = () => {
+  const now = new Date();
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
+};
+
+/** Undoes a message-quota charge: on a failed model call (never billed), or a movie/TV/anime/AV
+ *  recommendation turn (get_titles / get_own_titles was actually called — those don't count, see
+ *  README), regardless of tier. */
+async function refundQuotaCharge(email, lifetime) {
+  if (lifetime) {
+    await db.usageLifetime().updateOne({ user: email }, { $inc: { count: -1 } });
+  } else {
+    await Promise.all([
+      db.usage().updateOne({ user: email, day: dayKey() }, { $inc: { count: -1 } }),
+      db.usageMonth().updateOne({ user: email, month: monthKey() }, { $inc: { count: -1 } }),
+    ]);
+  }
+}
 
 function toConversation(c, req) {
   return {
@@ -285,7 +305,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
       if (daily.value.count > config.dailyMessageLimit) {
         quotaError = { error: "DAILY_LIMIT", limit: config.dailyMessageLimit };
       } else if (monthly.value.count > config.monthlyMessageLimit) {
-        quotaError = { error: "MONTHLY_LIMIT", limit: config.monthlyMessageLimit };
+        quotaError = { error: "MONTHLY_LIMIT", limit: config.monthlyMessageLimit, reset_at: nextMonthStart() };
       }
     }
     if (quotaError) return res.status(429).json(quotaError);
@@ -391,7 +411,12 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
           : {}),
       }
     );
-    charged = false; // succeeded: the count stands
+    // A reply that is NOTHING but recommended titles (no commentary or roleplay mixed in) doesn't
+    // count against the quota (see README) — anything else mixed in and the charge stands
+    if (charged && titleLinks.isBareTitleList(spokenText, replyLinks)) {
+      refundQuotaCharge(req.user.email, chargedLifetime).catch(() => {});
+    }
+    charged = false; // either refunded above (pure recommendation), or a normal turn: the count stands
 
     res.json({
       user_message: toMessage({ _id: inserted.insertedIds[0], role: "user", content: text, created_at: now }),
@@ -402,13 +427,7 @@ router.post("/conversations/:id/messages", async (req, res, next) => {
     // answered with an HTTP error. A timeout or an empty reply was still paid for, so it keeps
     // counting toward the quota (otherwise retries after failures would be unlimited).
     if (charged && (!modelCalled || error.response)) {
-      const refund = chargedLifetime
-        ? db.usageLifetime().updateOne({ user: req.user.email }, { $inc: { count: -1 } })
-        : Promise.all([
-            db.usage().updateOne({ user: req.user.email, day: dayKey() }, { $inc: { count: -1 } }),
-            db.usageMonth().updateOne({ user: req.user.email, month: monthKey() }, { $inc: { count: -1 } }),
-          ]);
-      Promise.resolve(refund).catch(() => {});
+      refundQuotaCharge(req.user.email, chargedLifetime).catch(() => {});
     }
     console.log("[send] failed:", error.message);
     if (!res.headersSent) {

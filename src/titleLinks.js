@@ -93,4 +93,39 @@ const namesTitles = (text) => new RegExp(MARK_RE.source).test(String(text || "")
 
 const stripMarkers =(text) => String(text).split(OPEN).join("").split(CLOSE).join("");
 
-module.exports = { extractTitleLinks, keepOpenable, applyMarkers, stripMarkers, namesTitles, MARK_REMINDER, OPEN, CLOSE };
+// Numbering, bullets, the "(2019)" year suffix and separators — everything a bare list can be made
+// of besides the titles themselves. Any letter/word outside the links means the model mixed in its
+// own commentary, so `isBareTitleList` below turns false and the reply is charged as usual.
+const LIST_FILLER_RE = /^[\s\d.\-–—()、,，。:：·•\n\r]*$/;
+
+/**
+ * Whether `text` (a reply already run through `extractTitleLinks`, so `links` sit at their offsets
+ * with brackets removed) is NOTHING but the given `links` — no other words before, between or after
+ * them. Only such a reply counts as a template-only recommendation: per the user's rule, a reply
+ * that mixes in even a little commentary or roleplay still counts against the message quota (see
+ * routes.js). `links` should be the already-trusted (`keepOpenable`) subset, so an untrusted/
+ * hallucinated title in the text is treated as "other content" and disqualifies the refund.
+ */
+function isBareTitleList(text, links) {
+  if (!links.length) return false;
+  let rest = "";
+  let pos = 0;
+  for (const link of [...links].sort((a, b) => a.start - b.start)) {
+    rest += text.slice(pos, link.start);
+    pos = link.end;
+  }
+  rest += text.slice(pos);
+  return LIST_FILLER_RE.test(rest);
+}
+
+module.exports = {
+  extractTitleLinks,
+  keepOpenable,
+  applyMarkers,
+  stripMarkers,
+  namesTitles,
+  isBareTitleList,
+  MARK_REMINDER,
+  OPEN,
+  CLOSE,
+};
