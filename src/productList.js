@@ -113,15 +113,16 @@ const wantsProductList = (text) => detectList(text) !== null;
 
 // ---- template texts ------------------------------------------------------------------------
 
-// Friendly, casual register (the avatar talks like a close friend / partner). `intro` is for the
+// Friendly, casual register (the avatar talks like a close friend / partner; Korean uses 해요체 to
+// match the avatar's own chat replies). `intro` is for the
 // plain list; `introCategory` names the category ({list}, see LABELS). `reset` is put before the
 // intro when the list started over.
 const TEXT = {
   ko: {
-    intro: "유저들 추천 수가 많은 순서로 골라 봤어. 또 궁금한 게 있으면 물어 봐.",
-    introCategory: "{list} 작품 중 유저들 추천 수가 많은 순서로 골라 봤어. 또 궁금한 게 있으면 물어 봐.",
-    reset: "다 보여 줬으니까 처음부터 다시 골라 봤어.",
-    none: "지금은 추천할 작품을 못 찾았어. 잠시 뒤에 다시 물어 봐.",
+    intro: "유저들 추천 수가 많은 순서로 골라 봤어요. 또 궁금한 게 있으면 물어봐요.",
+    introCategory: "{list} 작품 중 유저들 추천 수가 많은 순서로 골라 봤어요. 또 궁금한 게 있으면 물어봐요.",
+    reset: "다 보여 드렸으니까 처음부터 다시 골라 봤어요.",
+    none: "지금은 추천할 작품을 못 찾았어요. 잠시 뒤에 다시 물어봐요.",
   },
   ja: {
     intro: "ユーザーのおすすめ数が多い順に選んでみたよ。他にも気になることがあったら聞いてね。",
@@ -420,11 +421,11 @@ const OWN_WORKS_RE = new RegExp(
 );
 
 // {host}/usecase: download the app + subscribe. Same 9 locales as manko.fun's own site (no Russian there).
-// Casual/informal register (반말), matching the tone of the recommendation replies themselves —
-// not the polite/formal register a first-contact notice would normally use.
+// Same register as the recommendation replies themselves (Korean: 해요체, the friendly polite
+// form the avatar's own chat uses) — not the stiff formal register a notice would normally use.
 const PUBLIC_REDIRECT = {
   en: "Chat other than product-code recommendations can only happen after you install the app and subscribe to membership. Download the app first at https://manko.fun/usecase.",
-  ko: "품번 추천 이외의 대화는 앱 설치 후 멤버십을 구독한 다음에 할 수 있어. https://manko.fun/usecase에서 먼저 앱을 다운받아 봐.",
+  ko: "품번 추천 이외의 대화는 앱 설치 후 멤버십을 구독한 다음에 할 수 있어요. https://manko.fun/usecase에서 먼저 앱을 다운받아 보세요.",
   ja: "品番のおすすめ以外の会話は、アプリをインストールしてメンバーシップに登録した後にできるよ。https://manko.fun/usecase で先にアプリをダウンロードしてみて。",
   zh: "除了番号推荐之外的对话，得先装好应用、订阅会员之后才能聊哦。先去 https://manko.fun/usecase 下载应用看看吧。",
   "zh-tw": "除了番號推薦之外的對話，得先裝好應用、訂閱會員之後才能聊喔。先去 https://manko.fun/usecase 下載應用看看吧。",

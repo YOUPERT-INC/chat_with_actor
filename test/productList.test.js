@@ -109,7 +109,7 @@ test("five titles, most favourited first; each code links to its movie id with i
   assert.strictEqual(
     out.text,
     [
-      "유저들 추천 수가 많은 순서로 골라 봤어. 또 궁금한 게 있으면 물어 봐.",
+      "유저들 추천 수가 많은 순서로 골라 봤어요. 또 궁금한 게 있으면 물어봐요.",
       "ABC-100 (2024) - 한국이름",
       "ABC-101 (2024) - 한국이름",
       "ABC-102 (2024) - 한국이름",
@@ -141,7 +141,7 @@ test("a category list: only that category, the issue's condition (favorite_count
 
   const fc2 = await productList.buildReply({}, "ko", "fc2");
   assert.ok(fc2.links.every((l) => l.title.startsWith("FC2-PPV-")));
-  assert.ok(fc2.text.startsWith("FC2 작품 중 유저들 추천 수가 많은 순서로 골라 봤어."));
+  assert.ok(fc2.text.startsWith("FC2 작품 중 유저들 추천 수가 많은 순서로 골라 봤어요."));
   const leakedQuery = q.length;
   await productList.buildReply({}, "ja", "leaked");
   assert.strictEqual(q[leakedQuery].filter.category_id, "638ba0b6e6248f567f04b84c");
