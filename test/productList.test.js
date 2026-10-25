@@ -11,21 +11,32 @@ test.afterEach(() => {
   productList._resetIndexCheck();
 });
 
-// A fake `movie` collection. It sorts by (favorite_count desc, _id desc) like the real query and
-// honours the "after the cursor" part ($or); `indexes` lists the index names that exist.
+// A fake `movie` collection. It sorts by (favorite_count desc, _id desc) like the real query (a
+// missing favorite_count last) and honours the "after the cursor" part ($or, or favorite_count null
+// + _id) and is_no_mosaic; `indexes` lists the index names that exist.
+const favOf = (m) => (typeof m.favorite_count === "number" ? m.favorite_count : -Infinity);
+// one cursor condition: favorite_count {$lt} / a number / null (= missing), _id {$lt}
+const matchesCursor = (m, cond) =>
+  Object.entries(cond).every(([field, v]) => {
+    if (field === "_id") return m._id < v.$lt;
+    if (v === null) return typeof m.favorite_count !== "number";
+    if (typeof v === "number") return m.favorite_count === v;
+    return typeof m.favorite_count === "number" && m.favorite_count < v.$lt;
+  });
 function fakeCollections(list, { actresses = [], indexes = [productList.RANK_INDEX, productList.CATEGORY_INDEX] } = {}) {
   const queries = [];
   db.movies = () => ({
     indexExists: async (name) => indexes.includes(name),
     find: (filter, opts) => {
       queries.push({ filter, opts });
-      let rows = [...list].sort((a, b) => b.favorite_count - a.favorite_count || (a._id < b._id ? 1 : -1));
+      let rows = [...list].sort((a, b) => favOf(b) - favOf(a) || (a._id < b._id ? 1 : -1));
       if (filter.category_id) rows = rows.filter((m) => m.category_id === filter.category_id);
+      if (filter.is_no_mosaic === 1) rows = rows.filter((m) => m.is_no_mosaic === 1);
+      if (filter.is_no_mosaic && filter.is_no_mosaic.$ne === 1) rows = rows.filter((m) => m.is_no_mosaic !== 1);
+      if (filter.favorite_count && filter.favorite_count.$exists) rows = rows.filter((m) => typeof m.favorite_count === "number");
+      if (filter.favorite_count === null) rows = rows.filter((m) => matchesCursor(m, { favorite_count: null, _id: filter._id }));
       if (filter["actress.person_id"]) rows = rows.filter((m) => (m.actress || []).some((a) => a.person_id === filter["actress.person_id"]));
-      if (filter.$or) {
-        const [lower, tie] = filter.$or;
-        rows = rows.filter((m) => m.favorite_count < lower.favorite_count.$lt || (m.favorite_count === tie.favorite_count && m._id < tie._id.$lt));
-      }
+      if (filter.$or) rows = rows.filter((m) => filter.$or.some((cond) => matchesCursor(m, cond)));
       const cursor = {
         sort: (s) => {
           queries[queries.length - 1].sort = s;
@@ -72,7 +83,9 @@ test("product-code word in every app language, anywhere in the message: the plai
 
 test("category keywords of the issue, per language", () => {
   const cases = {
-    uncensored: ["노모 추천", "無修正 おすすめ", "ノーモ", "解禁", "Uncensored please", "original uncensored", "No Mosaic", "无码", "原版无码", "无码流出", "Tanpa Sensor", "No Sensor", "Tiada Sensor", "無碼", "原版無碼", "無碼流出", "ไร้เซ็นเซอร์", "ไม่เซ็นเซอร์", "Không Che", "Nguyên Bản Không Che"],
+    censored: ["유모 추천", "有修正", "モザイクあり", "Censored please", "有码", "有碼", "Bersensor", "Disensor", "มีเซ็นเซอร์", "Có Che"],
+    uncensored: ["노모 추천", "無修正 おすすめ", "ノーモ", "解禁", "Uncensored please", "original uncensored", "无码", "Tanpa Sensor", "No Sensor", "Tiada Sensor", "無碼", "ไร้เซ็นเซอร์", "ไม่เซ็นเซอร์", "Không Che", "Nguyên Bản Không Che"],
+    nomosaic: ["유출작 추천해 줘", "유출", "유모 배우 노모", "流出作品", "オリジナル無修正", "无码流出", "無碼流出", "原版无码", "原版無碼", "Leaked titles", "No Mosaic", "Bocoran", "Bocor", "Tanpa Mosaik", "Tanpa Mozek", "คลิปหลุด", "ไม่มีโมเสก", "Rò rỉ", "Không che gốc"],
     leaked: ["모파 추천", "모자이크 파괴", "모자이크 제거", "モザイク除去", "モザイク破壊", "AI修復", "漏れ", "Mosaic Removed", "Decensored", "Uncensored Leaked", "AI Uncensored", "去码", "破码", "AI修复", "AI去码", "Hapus Sensor", "Hilangkan Sensor", "AI No Sensor", "Buang Sensor", "去碼", "破碼", "AI去碼", "ลบเซ็นเซอร์", "ถอดเซ็นเซอร์", "AI ลบเซ็นเซอร์", "Xóa Che", "Gỡ Che", "AI Xóa Che"],
     fc2: ["FC2 추천해줘", "fc2", "FC2の作品", "给我 FC2"],
   };
@@ -84,7 +97,13 @@ test("a longer keyword wins over the shorter one it contains; case and spacing a
   assert.strictEqual(detect("Uncensored Leaked 보여줘"), "leaked");
   assert.strictEqual(detect("AI No Sensor"), "leaked"); // contains "No Sensor"
   assert.strictEqual(detect("AI去码"), "leaked");
-  assert.strictEqual(detect("原版无码"), "uncensored");
+  assert.strictEqual(detect("无码流出"), "nomosaic"); // contains "无码"
+  assert.strictEqual(detect("無修正流出の作品"), "nomosaic"); // contains "無修正"
+  assert.strictEqual(detect("노모 유출작 보여줘"), "nomosaic"); // contains "노모"
+  assert.strictEqual(detect("유모 배우 노모 보여줘"), "nomosaic"); // contains "유모" and "노모"
+  assert.strictEqual(detect("Không che gốc"), "nomosaic"); // contains "Không Che"
+  assert.strictEqual(detect("Uncensored"), "uncensored"); // contains "Censored"
+  assert.strictEqual(detect("Decensored"), "leaked");
   assert.strictEqual(detect("모자이크파괴 추천"), "leaked"); // no space
   assert.strictEqual(detect("UNCENSORED"), "uncensored");
   assert.strictEqual(detect("노모 품번 알려줘"), "uncensored");
@@ -145,6 +164,50 @@ test("a category list: only that category, the issue's condition (favorite_count
   const leakedQuery = q.length;
   await productList.buildReply({}, "ja", "leaked");
   assert.strictEqual(q[leakedQuery].filter.category_id, "638ba0b6e6248f567f04b84c");
+  const censoredQuery = q.length;
+  await productList.buildReply({}, "ko", "censored");
+  assert.strictEqual(q[censoredQuery].filter.category_id, "5f75927b5c425008d254a788");
+});
+
+const LEAKED_ID = "638ba0b6e6248f567f04b84c";
+// Leaked category: 3 demosaiced titles, 4 No Mosaic titles (2 of them without a favorite_count)
+const leakedCategory = () => [
+  ...movies(3, (i) => 800 - i, LEAKED_ID).map((m, i) => ({ ...m, _id: `dm${i}`, title: `DEMO-${i}` })),
+  ...movies(4, (i) => (i < 2 ? 900 - i : undefined), LEAKED_ID).map((m, i) => ({ ...m, _id: `nm${i}`, title: `NOMO-${i}`, is_no_mosaic: 1 })),
+];
+
+test("nomosaic: only the Leaked titles flagged is_no_mosaic, titles without a favorite_count too (last); leaked leaves them out", async () => {
+  const q = fakeCollections(leakedCategory());
+  const out = await productList.buildReply({}, "ko", "nomosaic");
+  assert.deepStrictEqual(out.links.map((l) => l.title), ["NOMO-0", "NOMO-1", "NOMO-3", "NOMO-2"]);
+  assert.strictEqual(q[0].filter.category_id, LEAKED_ID);
+  assert.strictEqual(q[0].filter.is_no_mosaic, 1);
+  assert.strictEqual(q[0].filter.favorite_count, undefined);
+  assert.ok(out.text.startsWith("유출 작품 중 유저들 추천 수가 많은 순서로 골라 봤어요."));
+  assert.deepStrictEqual(out.cursor, { fav: -1, id: "nm2" });
+
+  const demo = await productList.buildReply({}, "ko", "leaked");
+  assert.deepStrictEqual(demo.links.map((l) => l.title), ["DEMO-0", "DEMO-1", "DEMO-2"]);
+  assert.deepStrictEqual(q[1].filter.is_no_mosaic, { $ne: 1 });
+  assert.ok(demo.text.startsWith("모자이크 파괴 작품 중"));
+});
+
+test("nomosaic: five at a time, no repeats across requests, through the titles without a favorite_count; then starts over", async () => {
+  const rows = movies(12, (i) => (i < 7 ? 300 - (i >> 1) : undefined), LEAKED_ID).map((m) => ({ ...m, is_no_mosaic: 1 })); // ties, 5 without a count
+  fakeCollections(rows);
+  const seen = [];
+  let conv = {};
+  for (let round = 0; round < 3; round++) {
+    const out = await productList.buildReply(conv, "en", "nomosaic");
+    assert.strictEqual(out.reset, false);
+    seen.push(...out.links.map((l) => l.title));
+    conv = { product_cursors: { nomosaic: out.cursor } };
+  }
+  assert.strictEqual(seen.length, 12);
+  assert.strictEqual(new Set(seen).size, 12, "no title twice, none skipped");
+  const again = await productList.buildReply(conv, "en", "nomosaic");
+  assert.strictEqual(again.reset, true);
+  assert.strictEqual(again.links[0].title, seen[0]);
 });
 
 test("each list continues on its own: no repeats, even when many titles share a count", async () => {
@@ -214,7 +277,7 @@ test("every app language has the template texts and a name for each list", () =>
     for (const key of ["intro", "introCategory", "reset", "none"]) assert.ok(productList.TEXT[lang][key], `${lang}.${key}`);
     assert.ok(!productList.TEXT[lang].intro.includes("{list}"), `${lang} plain intro names no category`);
     assert.ok(productList.TEXT[lang].introCategory.includes("{list}"), `${lang} category intro names the category`);
-    for (const list of ["uncensored", "fc2", "leaked"]) assert.ok(productList.LABELS[lang][list], `${lang}.${list}`);
+    for (const list of Object.keys(productList.CATEGORIES)) assert.ok(productList.LABELS[lang][list], `${lang}.${list}`);
   }
 });
 

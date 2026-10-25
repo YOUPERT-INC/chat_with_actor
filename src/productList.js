@@ -4,9 +4,15 @@
 // recommended in this conversation.
 //
 //   all         "품번" / product code ...      every active title that has a favorite_count
+//   censored    유모, 有修正, Censored ...      category Censored
 //   uncensored  노모, 無修正, Uncensored ...    category Uncensored
 //   fc2         FC2                            category FC2
-//   leaked      모자이크 제거, モザイク除去 ...  category Leaked
+//   leaked      모자이크 파괴, モザイク除去 ...  category Leaked, without the No Mosaic titles
+//   nomosaic    유출작, 流出, Leaked ...        the No Mosaic titles: Leaked titles flagged is_no_mosaic
+//                                              (released without mosaic, not demosaiced)
+//
+// "leaked" is the demosaiced list although the category is called Leaked; "nomosaic" is the one a
+// user calls "유출작" (the site lists it as the No Mosaic category, see swipex_nodejs list_page_movie).
 //
 // The product code is the movie's `title` field (its `code` field is a source URL). Each code
 // becomes a link: {start, end, title, movie_id, type: "av", year?, thumbnail?, cover?}; the app opens
@@ -23,24 +29,58 @@ const MAX_NAMES = 2; // actresses shown per title
 // ---- which list the message asks for -------------------------------------------------------
 
 // category keywords per language, matched whatever the app language is. A longer keyword wins over
-// a shorter one it contains ("AI Uncensored" beats "Uncensored").
+// a shorter one it contains ("AI Uncensored" beats "Uncensored", "유모 배우 노모" beats "노모").
+// `filter`: extra conditions of the list. `anyFavorite`: titles without a favorite_count are listed
+// too (after the counted ones), for a list too small to drop them.
 const CATEGORIES = {
+  censored: {
+    id: "5f75927b5c425008d254a788",
+    keywords: [
+      "유모", // ko
+      "有修正", "モザイクあり", // ja
+      "Censored", // en
+      "有码", // zh
+      "有碼", // zh-tw
+      "Bersensor", "Disensor", // id, ms
+      "มีเซ็นเซอร์", // th
+      "Có Che", // vi
+    ],
+  },
   uncensored: {
     id: "5f7592975c425008d254a789",
     keywords: [
       "노모", // ko
       "無修正", "ノーモ", "解禁", // ja
-      "Uncensored", "Original Uncensored", "No Mosaic", // en (also id, ms, th, vi)
-      "无码", "原版无码", "无码流出", // zh
+      "Uncensored", "Original Uncensored", // en (also id, ms, th, vi)
+      "无码", // zh
       "Tanpa Sensor", "No Sensor", // id
       "Tiada Sensor", // ms
-      "無碼", "原版無碼", "無碼流出", // zh-tw
+      "無碼", // zh-tw
       "ไร้เซ็นเซอร์", "ไม่เซ็นเซอร์", // th
       "Không Che", "Nguyên Bản Không Che", // vi
     ],
   },
+  // the No Mosaic category's own name on the sites (manko-nextjs / new_manko translations) is a
+  // keyword too, so a user typing the menu name gets this list
+  nomosaic: {
+    id: "638ba0b6e6248f567f04b84c",
+    filter: { is_no_mosaic: 1 },
+    anyFavorite: true, // ~210 titles, about 1 in 5 without a favorite_count
+    keywords: [
+      "유출", "노모 유출", "유모 배우 노모", // ko ("유출" also matches "유출작")
+      "流出", "無修正流出", "オリジナル無修正", // ja (流出 is also zh, zh-tw)
+      "Leaked", "No Mosaic", // en
+      "原版无码", "无码流出", // zh ("无码流出": 流出 alone ties with 无码 and loses as the later word)
+      "原版無碼", "無碼流出", // zh-tw
+      "Bocoran", "Tanpa Mosaik", // id
+      "Bocor", "Tanpa Mozek", // ms
+      "หลุด", "ไม่มีโมเสก", // th
+      "Rò rỉ", "Không che gốc", // vi
+    ],
+  },
   leaked: {
     id: "638ba0b6e6248f567f04b84c",
+    filter: { is_no_mosaic: { $ne: 1 } },
     keywords: [
       "모파", "모자이크 파괴", "모자이크 제거", // ko
       "モザイク除去", "モザイク破壊", "AI修復", "漏れ", // ja (AI修復 is also zh-tw)
@@ -93,7 +133,7 @@ const CATEGORY_KEYWORDS = Object.entries(CATEGORIES).flatMap(([key, c]) => c.key
 /**
  * Which list does the message ask for? A category keyword wins over the plain product-code word;
  * among category keywords the longest match wins, then the one that comes first in the message.
- * @returns {"uncensored"|"leaked"|"fc2"|"all"|null}
+ * @returns {"censored"|"uncensored"|"nomosaic"|"leaked"|"fc2"|"all"|null}
  */
 function detectList(text) {
   const t = squash(text);
@@ -183,16 +223,16 @@ TEXT.tw = TEXT["zh-tw"];
 
 // the name of each category, per app language (the plain list needs none)
 const LABELS = {
-  ko: { uncensored: "노모(무수정)", fc2: "FC2", leaked: "모자이크 제거(유출)" },
-  ja: { uncensored: "無修正", fc2: "FC2", leaked: "モザイク除去" },
-  zh: { uncensored: "无码", fc2: "FC2", leaked: "去码" },
-  "zh-tw": { uncensored: "無碼", fc2: "FC2", leaked: "去碼" },
-  en: { uncensored: "Uncensored", fc2: "FC2", leaked: "Mosaic Removed" },
-  id: { uncensored: "Tanpa Sensor", fc2: "FC2", leaked: "Hapus Sensor" },
-  ms: { uncensored: "Tanpa Sensor", fc2: "FC2", leaked: "Buang Sensor" },
-  ru: { uncensored: "Без цензуры", fc2: "FC2", leaked: "Цензура удалена" },
-  th: { uncensored: "ไร้เซ็นเซอร์", fc2: "FC2", leaked: "ลบเซ็นเซอร์" },
-  vi: { uncensored: "Không Che", fc2: "FC2", leaked: "Xóa Che" },
+  ko: { censored: "유모", uncensored: "노모(무수정)", fc2: "FC2", leaked: "모자이크 파괴", nomosaic: "유출" },
+  ja: { censored: "有修正", uncensored: "無修正", fc2: "FC2", leaked: "モザイク除去", nomosaic: "流出" },
+  zh: { censored: "有码", uncensored: "无码", fc2: "FC2", leaked: "去码", nomosaic: "流出" },
+  "zh-tw": { censored: "有碼", uncensored: "無碼", fc2: "FC2", leaked: "去碼", nomosaic: "流出" },
+  en: { censored: "Censored", uncensored: "Uncensored", fc2: "FC2", leaked: "Mosaic Removed", nomosaic: "Leaked" },
+  id: { censored: "Bersensor", uncensored: "Tanpa Sensor", fc2: "FC2", leaked: "Hapus Sensor", nomosaic: "Bocoran" },
+  ms: { censored: "Bersensor", uncensored: "Tanpa Sensor", fc2: "FC2", leaked: "Buang Sensor", nomosaic: "Bocor" },
+  ru: { censored: "С цензурой", uncensored: "Без цензуры", fc2: "FC2", leaked: "Цензура удалена", nomosaic: "Утечки" },
+  th: { censored: "มีเซ็นเซอร์", uncensored: "ไร้เซ็นเซอร์", fc2: "FC2", leaked: "ลบเซ็นเซอร์", nomosaic: "คลิปหลุด" },
+  vi: { censored: "Có Che", uncensored: "Không Che", fc2: "FC2", leaked: "Xóa Che", nomosaic: "Rò rỉ" },
 };
 LABELS.tw = LABELS["zh-tw"];
 
@@ -237,6 +277,8 @@ async function actressNames(movies, lang) {
 // set (seeding_favorite = 1, ~850 titles, has its own index) is used instead.
 // A category list is ~10k-40k titles: it uses `chat_category_rank` ({category_id: 1, is_active: 1,
 // favorite_count: -1, _id: -1}, partial favorite_count exists) when it exists, and is only slower without.
+// The No Mosaic list (~210 titles) is found by its own partial index on is_no_mosaic (swipex_nodejs)
+// and sorted in memory.
 const RANK_INDEX = "chat_product_rank";
 const CATEGORY_INDEX = "chat_category_rank";
 const INDEX_CHECK_MS = 5 * 60 * 1000;
@@ -256,13 +298,30 @@ async function hasIndex(name) {
   return ok;
 }
 
-// what is stored on the conversation, per list (`product_cursors.<list>`): the last title shown, {fav, id}
-const cursorOf = (row) => ({ fav: row.favorite_count || 0, id: row._id });
+// what is stored on the conversation, per list (`product_cursors.<list>`): the last title shown, {fav, id}.
+// fav -1 = that title has no favorite_count (only in an `anyFavorite` list, where such titles come last:
+// the sort puts a missing favorite_count after every number).
+const cursorOf = (row) => ({ fav: typeof row.favorite_count === "number" ? row.favorite_count : -1, id: row._id });
 const validCursor = (c) => c && typeof c === "object" && typeof c.fav === "number" && c.id;
+
+/** The titles after the cursor, in the list's order (favorite_count desc, _id desc). */
+function afterCursor(c, anyFavorite) {
+  if (!anyFavorite) return { $or: [{ favorite_count: { $lt: c.fav } }, { favorite_count: c.fav, _id: { $lt: c.id } }] };
+  if (c.fav < 0) return { favorite_count: null, _id: { $lt: c.id } };
+  return { $or: [{ favorite_count: { $lt: c.fav } }, { favorite_count: c.fav, _id: { $lt: c.id } }, { favorite_count: null }] };
+}
 
 async function baseFilter(list) {
   const category = CATEGORIES[list];
-  if (category) return { favorite_count: { $exists: true }, category_id: category.id, is_active: 1, title: { $regex: CODE_SHAPE } };
+  if (category) {
+    return {
+      ...(category.anyFavorite ? {} : { favorite_count: { $exists: true } }),
+      category_id: category.id,
+      ...category.filter,
+      is_active: 1,
+      title: { $regex: CODE_SHAPE },
+    };
+  }
   if (await hasIndex(RANK_INDEX)) return { is_active: 1, favorite_count: { $gt: 0 }, title: { $regex: CODE_SHAPE } };
   return { seeding_favorite: 1, is_active: 1, title: { $regex: CODE_SHAPE } };
 }
@@ -280,7 +339,7 @@ async function nextPicks(conv, list, count) {
       .toArray();
   const stored = conv && conv.product_cursors && conv.product_cursors[list];
   const c = validCursor(stored) ? stored : null;
-  const after = c ? { $or: [{ favorite_count: { $lt: c.fav } }, { favorite_count: c.fav, _id: { $lt: c.id } }] } : {};
+  const after = c ? afterCursor(c, Boolean(CATEGORIES[list] && CATEGORIES[list].anyFavorite)) : {};
   let rows = await find({ ...base, ...after });
   let reset = false;
   if (!rows.length && c) {
@@ -293,7 +352,7 @@ async function nextPicks(conv, list, count) {
 /**
  * @param {{product_cursors?: object}} conv the conversation (where each of its lists stopped)
  * @param {string} lang app language
- * @param {"all"|"uncensored"|"fc2"|"leaked"} list which list (see detectList)
+ * @param {"all"|"censored"|"uncensored"|"fc2"|"leaked"|"nomosaic"} list which list (see detectList)
  * @returns {Promise<{text: string, links: object[], cursor: object|null, reset: boolean}>} `cursor` = the
  *   last title shown now (to be stored as `product_cursors.<list>` for the next request)
  */
@@ -475,7 +534,7 @@ function renderOwnTitles(items, lang) {
  *   matches is only known here, after the fact; the caller keeps the whole map and always sends
  *   it all, so asking for a different list never applies another list's progress to it by mistake.
  * @returns {Promise<{text: string, links: object[], cursor?: object|null, matched: string|null}>}
- *   `matched`: which list answered ("all"/"uncensored"/"fc2"/"leaked"/"own"), or null for the redirect.
+ *   `matched`: which list answered ("all"/"censored"/"uncensored"/"fc2"/"leaked"/"nomosaic"/"own"), or null for the redirect.
  *   `cursor` (this reply's only): the caller sets `cursors[matched] = cursor` for the next call.
  */
 async function publicReply(text, lang, { personId, seen, cursors } = {}) {
